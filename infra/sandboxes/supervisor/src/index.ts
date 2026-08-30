@@ -36,7 +36,6 @@ import {
   browserProfilePathForScreen,
   ComputerControlUnavailableError,
   clearComputerScreenRegistry,
-  completeReleasedScreen,
   computerActionSchema,
   computerControlTimeoutMs,
   containerActionSteps,
@@ -57,6 +56,7 @@ import {
   sandboxTimeoutCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
+  teardownReleasedScreen,
   toSandboxInput,
   withKeyedLock,
   workspaceTarget,
@@ -549,14 +549,12 @@ app.delete("/computers/:id/screen", async (c) => {
         ? releaseAssignedScreen(assigned, screenId, c.req.header("x-rakazo-screen-lease-id"))
         : undefined;
       const stop = index !== undefined ? stopExtraScreenCommand(index, screenId) : "";
-      try {
-        if (stop) {
-          await runContainerCommand(container, ["bash", "-lc", stop]).catch(() => undefined);
-        }
-      } finally {
-        if (assigned && index !== undefined) completeReleasedScreen(assigned, screenId, index);
-        if (assigned?.size === 0) computerScreens.delete(id);
+      if (assigned && index !== undefined) {
+        await teardownReleasedScreen(assigned, screenId, index, () =>
+          runContainerCommand(container, ["bash", "-lc", stop]),
+        );
       }
+      if (assigned?.size === 0) computerScreens.delete(id);
     });
     return c.json({ ok: true });
   } catch (error) {
@@ -713,12 +711,10 @@ async function managedScreen(
       ensureScreenCommand(index, screenKey),
     ]);
     if (ensured.code !== 0) {
-      await runContainerCommand(container, [
-        "bash",
-        "-lc",
-        stopExtraScreenCommand(index, screenKey),
-      ]).catch(() => undefined);
-      assigned.delete(screenKey);
+      releaseAssignedScreen(assigned, screenKey);
+      await teardownReleasedScreen(assigned, screenKey, index, () =>
+        runContainerCommand(container, ["bash", "-lc", stopExtraScreenCommand(index, screenKey)]),
+      );
       if (assigned.size === 0) computerScreens.delete(id);
       throw new Error(ensured.stderr || `computer screen ${layout.display} failed to start`);
     }

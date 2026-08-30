@@ -32,6 +32,7 @@ import {
   sandboxTimeoutCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
+  teardownReleasedScreen,
   withKeyedLock,
 } from "./supervisor-logic.js";
 
@@ -536,6 +537,24 @@ describe("sandbox supervisor input containment", () => {
     expect(nextScreenIndex(assigned, "bot-0")).toBe(0);
     expect(releaseAssignedScreen(assigned, "missing")).toBeUndefined();
     expect(() => nextScreenIndex(assigned, "bot-9")).toThrow(/cannot allocate another screen/);
+  });
+
+  it("retains a screen slot when teardown fails", async () => {
+    const assigned = new Map<string, ScreenAssignment>();
+    expect(nextScreenIndex(assigned, "writer")).toBe(0);
+    expect(releaseAssignedScreen(assigned, "writer")).toBe(0);
+
+    await expect(
+      teardownReleasedScreen(assigned, "writer", 0, async () => ({
+        code: 1,
+        stderr: "browser still running",
+      })),
+    ).rejects.toThrow("browser still running");
+
+    expect(assigned.get("writer")).toEqual({ index: 0, releasing: true });
+    expect(() => nextScreenIndex(assigned, "writer")).toThrow(/still being released/);
+    expect(nextScreenIndex(assigned, "researcher")).toBe(1);
+    expect(releaseAssignedScreen(assigned, "writer")).toBe(0);
   });
 
   it("clears all screen assignments when a container stops so slots can be reused", () => {

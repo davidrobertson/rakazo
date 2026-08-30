@@ -219,9 +219,10 @@ export function releaseAssignedScreen(
   leaseId?: string,
 ): number | undefined {
   const slot = assigned.get(screenId);
-  if (!slot || slot.releasing || (leaseId && !canReleaseScreenLease(slot.leaseId, leaseId))) {
+  if (!slot || (leaseId && !canReleaseScreenLease(slot.leaseId, leaseId))) {
     return undefined;
   }
+  if (slot.releasing) return slot.index;
   slot.releasing = true;
   return slot.index;
 }
@@ -233,6 +234,17 @@ export function completeReleasedScreen(
 ): void {
   const slot = assigned.get(screenId);
   if (slot?.releasing && slot.index === index) assigned.delete(screenId);
+}
+
+export async function teardownReleasedScreen(
+  assigned: Map<string, ScreenAssignment>,
+  screenId: string,
+  index: number,
+  teardown: () => Promise<{ code: number; stderr: string }>,
+) {
+  const result = await teardown();
+  if (result.code !== 0) throw new Error(result.stderr || "computer screen failed to stop");
+  completeReleasedScreen(assigned, screenId, index);
 }
 
 export interface ScreenAssignment {
