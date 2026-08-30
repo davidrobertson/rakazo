@@ -6,6 +6,7 @@ import {
   composeBotInstructions,
   createRunExecutor,
   runNotificationsEnabled,
+  selectBuiltinToolsForRun,
   threadContextForRun,
 } from "./executor.js";
 
@@ -41,6 +42,34 @@ describe("bot instruction composition", () => {
 
     expect(composed).toHaveLength(BOT_INSTRUCTIONS_MAX_LENGTH * 2 + 2);
     expect(composed).toBe(`${teamInstructions}\n\n${botInstructions}`);
+  });
+});
+
+describe("run tool selection", () => {
+  const toolNames = (trigger: string, groupId: string | null = null) =>
+    selectBuiltinToolsForRun({
+      graphicalToolsAllowed: true,
+      groupId,
+      trigger,
+      semanticMemoryEnabled: false,
+    }).map((tool) => tool.name);
+
+  it("withholds schedule creation only from routine-triggered runs", () => {
+    expect(toolNames("routine")).not.toContain("schedule_create");
+    expect(toolNames("routine")).toEqual(
+      expect.arrayContaining(["schedule_list", "schedule_cancel"]),
+    );
+    expect(toolNames("user")).toContain("schedule_create");
+  });
+
+  it("keeps schedule tools in group chats and still blocks create on routines", () => {
+    expect(toolNames("user", "group-1")).toEqual(
+      expect.arrayContaining(["schedule_create", "schedule_list", "schedule_cancel"]),
+    );
+    expect(toolNames("routine", "group-1")).not.toContain("schedule_create");
+    expect(toolNames("routine", "group-1")).toEqual(
+      expect.arrayContaining(["schedule_list", "schedule_cancel"]),
+    );
   });
 });
 
