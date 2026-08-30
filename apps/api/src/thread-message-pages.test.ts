@@ -2,6 +2,16 @@ import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import { loadAllMessages, loadMessagePage } from "./thread-message-pages.js";
 
+function prismaWithMessages(
+  message: Partial<PrismaClient["message"]>,
+  runFindMany: PrismaClient["run"]["findMany"] = vi.fn(async () => []),
+) {
+  return {
+    message,
+    run: { findMany: runFindMany },
+  } as unknown as PrismaClient;
+}
+
 describe("thread message pages", () => {
   it("queries before the cursor and returns an ascending bounded page", async () => {
     const findMany = vi.fn(async () =>
@@ -15,7 +25,7 @@ describe("thread message pages", () => {
         createdAt: new Date(`2026-08-16T00:00:0${seq}.000Z`),
       })),
     );
-    const prisma = { message: { findMany } } as unknown as PrismaClient;
+    const prisma = prismaWithMessages({ findMany });
 
     const page = await loadMessagePage(prisma, "thread-1", 6, 2);
 
@@ -40,7 +50,7 @@ describe("thread message pages", () => {
         createdAt: new Date("2026-08-16T00:00:00.000Z"),
       },
     ]);
-    const prisma = { message: { findMany } } as unknown as PrismaClient;
+    const prisma = prismaWithMessages({ findMany });
 
     const page = await loadMessagePage(prisma, "thread-1", 1, 2);
 
@@ -83,9 +93,7 @@ describe("thread message pages", () => {
       ])
       .mockResolvedValueOnce(1);
     const count = vi.fn(async () => 1);
-    const prisma = {
-      message: { findFirst, findMany, count },
-    } as unknown as PrismaClient;
+    const prisma = prismaWithMessages({ findFirst, findMany, count });
 
     const page = await loadMessagePage(prisma, "thread-1", undefined, 4, { seq: 5 });
 
@@ -113,11 +121,57 @@ describe("thread message pages", () => {
       .mockResolvedValueOnce([row(4), row(3), row(2)])
       .mockResolvedValueOnce([row(2), row(1), row(0)])
       .mockResolvedValueOnce([row(0)]);
-    const prisma = { message: { findMany } } as unknown as PrismaClient;
+    const prisma = prismaWithMessages({ findMany });
 
     const messages = await loadAllMessages(prisma, "thread-1", 2);
 
     expect(messages.map((message) => message.seq)).toEqual([0, 1, 2, 3, 4]);
     expect(findMany.mock.calls.map(([query]) => query.where.seq?.lt)).toEqual([undefined, 3, 1]);
+  });
+
+  it("attaches runTrigger so peer runs are classifiable without a receipt in-page", async () => {
+    const findMany = vi.fn(async () => [
+      {
+        id: "message-2",
+        threadId: "thread-1",
+        seq: 2,
+        role: "bot",
+        blocks: [{ kind: "text", text: "peer reply" }],
+        botId: "bot-1",
+        replyToMessageId: null,
+        runId: "run-peer",
+        createdAt: new Date("2026-08-16T00:00:02.000Z"),
+      },
+      {
+        id: "message-1",
+        threadId: "thread-1",
+        seq: 1,
+        role: "bot",
+        blocks: [{ kind: "text", text: "user answer" }],
+        botId: "bot-1",
+        replyToMessageId: null,
+        runId: "run-user",
+        createdAt: new Date("2026-08-16T00:00:01.000Z"),
+      },
+    ]);
+    const runFindMany = vi.fn(async () => [
+      { id: "run-peer", trigger: "bot_message" },
+      { id: "run-user", trigger: "user" },
+    ]);
+    const prisma = prismaWithMessages({ findMany }, runFindMany);
+
+    const page = await loadMessagePage(prisma, "thread-1", undefined, 2);
+
+    expect(runFindMany).toHaveBeenCalledWith({
+      where: { id: { in: expect.arrayContaining(["run-peer", "run-user"]) } },
+      select: { id: true, trigger: true },
+    });
+    expect(runFindMany.mock.calls[0][0].where.id.in).toHaveLength(2);
+    expect(
+      page.messages.map((message) => ({ id: message.id, runTrigger: message.runTrigger })),
+    ).toEqual([
+      { id: "message-1", runTrigger: "user" },
+      { id: "message-2", runTrigger: "bot_message" },
+    ]);
   });
 });

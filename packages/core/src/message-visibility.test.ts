@@ -80,4 +80,16 @@ describe("user-visible messages", () => {
     );
     expect(latestUserVisibleMessage(newestFirst)?.id).toBe("reply");
   });
+
+  it("hides peer-run tails when runTrigger marks the run without a receipt", () => {
+    const messages = [
+      message("user", "run-user", [{ kind: "text", text: "Please ask Coder." }]),
+      {
+        ...message("reply", "run-peer", [{ kind: "text", text: "Sent Coder the endpoints." }]),
+        runTrigger: "bot_message",
+      },
+      message("answer", "run-user", [{ kind: "text", text: "Coder is checking it." }]),
+    ];
+    expect(userVisibleMessages(messages).map((item) => item.id)).toEqual(["user", "answer"]);
+  });
 });

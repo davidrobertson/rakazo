@@ -3,6 +3,18 @@ import type { Prisma, PrismaClient } from "@rakazo/db";
 
 type MessageDb = PrismaClient | Prisma.TransactionClient;
 
+type MessageRow = {
+  id: string;
+  threadId: string;
+  seq: number;
+  role: string;
+  blocks: Prisma.JsonValue;
+  botId: string | null;
+  replyToMessageId: string | null;
+  runId: string | null;
+  createdAt: Date;
+};
+
 export async function loadMessagePage(
   prisma: MessageDb,
   threadId: string,
@@ -34,7 +46,7 @@ export async function loadMessagePage(
         : false;
       return {
         threadId,
-        messages: rows.map(toThreadMessage),
+        messages: await toThreadMessages(prisma, rows),
         olderCursor: hasOlder ? (first?.seq ?? null) : null,
       };
     }
@@ -49,7 +61,7 @@ export async function loadMessagePage(
     take: pageSize + 1,
   });
   const hasOlder = rows.length > pageSize;
-  const messages = rows.slice(0, pageSize).reverse().map(toThreadMessage);
+  const messages = await toThreadMessages(prisma, rows.slice(0, pageSize).reverse());
   return {
     threadId,
     messages,
@@ -72,17 +84,24 @@ export async function loadAllMessages(
   return pages.reverse().flat();
 }
 
-function toThreadMessage(row: {
-  id: string;
-  threadId: string;
-  seq: number;
-  role: string;
-  blocks: Prisma.JsonValue;
-  botId: string | null;
-  replyToMessageId: string | null;
-  runId: string | null;
-  createdAt: Date;
-}): ThreadMessage {
+async function toThreadMessages(prisma: MessageDb, rows: MessageRow[]): Promise<ThreadMessage[]> {
+  const runIds = [
+    ...new Set(rows.map((row) => row.runId).filter((runId): runId is string => Boolean(runId))),
+  ];
+  const triggers = new Map(
+    runIds.length === 0
+      ? []
+      : (
+          await prisma.run.findMany({
+            where: { id: { in: runIds } },
+            select: { id: true, trigger: true },
+          })
+        ).map((run) => [run.id, run.trigger] as const),
+  );
+  return rows.map((row) => toThreadMessage(row, row.runId ? triggers.get(row.runId) : undefined));
+}
+
+function toThreadMessage(row: MessageRow, runTrigger?: string): ThreadMessage {
   return {
     id: row.id,
     threadId: row.threadId,
@@ -92,6 +111,7 @@ function toThreadMessage(row: {
     botId: row.botId ?? undefined,
     replyToMessageId: row.replyToMessageId ?? undefined,
     runId: row.runId ?? undefined,
+    runTrigger,
     createdAt: row.createdAt.toISOString(),
   };
 }

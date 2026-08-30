@@ -2,6 +2,8 @@ import type { MessageBlock } from "@rakazo/contracts";
 
 type PresentableMessage = {
   runId?: string;
+  /** When set to `bot_message`, treat the run as peer even without a receipt in-window. */
+  runTrigger?: string;
   blocks: readonly MessageBlock[];
 };
 
@@ -29,9 +31,14 @@ function peerRunIdsOf(
   knownPeerRunIds?: ReadonlySet<string> | readonly string[],
 ): Set<string> {
   const peerRunIds = new Set(
-    messages
-      .filter((message) => message.blocks.some((block) => block.kind === "bot_message_received"))
-      .flatMap((message) => (message.runId ? [message.runId] : [])),
+    messages.flatMap((message) => {
+      if (!message.runId) return [];
+      if (message.runTrigger === "bot_message") return [message.runId];
+      if (message.blocks.some((block) => block.kind === "bot_message_received")) {
+        return [message.runId];
+      }
+      return [];
+    }),
   );
   if (!knownPeerRunIds) return peerRunIds;
   for (const runId of knownPeerRunIds) peerRunIds.add(runId);
