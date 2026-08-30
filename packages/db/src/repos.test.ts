@@ -57,40 +57,52 @@ describe("createRepos.listBots", () => {
   });
 
   it("keeps bot-to-bot run output out of sidebar previews", async () => {
-    const prisma = {
-      bot: {
-        findMany: vi.fn(async () => [
-          {
-            ...baseBot,
-            thread: {
-              ...baseBot.thread,
-              messages: [
+    const findMany = vi.fn(async () => [
+      {
+        ...baseBot,
+        thread: {
+          ...baseBot.thread,
+          messages: [
+            {
+              runId: "run-peer",
+              blocks: [{ kind: "text", text: "Echoed peer reply" }],
+            },
+            {
+              runId: "run-peer",
+              blocks: [
                 {
-                  runId: "run-peer",
-                  blocks: [{ kind: "text", text: "Echoed peer reply" }],
+                  kind: "bot_message_received",
+                  fromBotId: "bot-2",
+                  fromBotName: "Coder",
+                  text: "Peer result",
                 },
-                {
-                  runId: "run-peer",
-                  blocks: [
-                    {
-                      kind: "bot_message_received",
-                      fromBotId: "bot-2",
-                      fromBotName: "Coder",
-                      text: "Peer result",
-                    },
-                  ],
-                },
-                { runId: "run-user", blocks: [{ kind: "text", text: "Visible answer" }] },
               ],
             },
-          },
-        ]),
+            { runId: "run-user", blocks: [{ kind: "text", text: "Visible answer" }] },
+          ],
+        },
+      },
+    ]);
+    const prisma = {
+      bot: {
+        findMany,
       },
     };
 
     await expect(createRepos(prisma as unknown as PrismaClient).listBots(actor)).resolves.toEqual([
       expect.objectContaining({ preview: "Visible answer" }),
     ]);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          thread: {
+            include: {
+              messages: { orderBy: { seq: "desc" }, take: 16 },
+            },
+          },
+        }),
+      }),
+    );
   });
 });
 
