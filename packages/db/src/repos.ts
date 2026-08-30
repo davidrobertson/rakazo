@@ -5,6 +5,7 @@ import {
   type BotSection,
   type MessageBlock,
 } from "@rakazo/contracts";
+import { userVisibleMessages } from "@rakazo/core";
 import type { PrismaClient } from "./client.js";
 import { type ComputerMode, ensureComputerRecord, parseComputerMode } from "./computers.js";
 import { createThreadMessageInTransaction } from "./messages.js";
@@ -165,7 +166,7 @@ export function createRepos(prisma: PrismaClient) {
         include: {
           thread: {
             include: {
-              messages: { orderBy: { seq: "desc" }, take: 1 },
+              messages: { orderBy: { seq: "desc" }, take: 100 },
             },
           },
           runs: {
@@ -180,7 +181,14 @@ export function createRepos(prisma: PrismaClient) {
         orderBy: [{ pinned: "desc" }, { position: "asc" }, { createdAt: "asc" }],
       });
       return bots.map((bot) => {
-        const blocks = (bot.thread?.messages[0]?.blocks ?? []) as Array<{
+        const visible = userVisibleMessages(
+          (bot.thread?.messages ?? []).map((message) => ({
+            ...message,
+            blocks: message.blocks as MessageBlock[],
+            runId: message.runId ?? undefined,
+          })),
+        );
+        const blocks = (visible[0]?.blocks ?? []) as Array<{
           kind?: string;
           text?: string;
         }>;

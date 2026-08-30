@@ -76,6 +76,7 @@ import {
   Gauge,
   LogOut,
   Menu,
+  MessagesSquare,
   Mic,
   Monitor,
   Paperclip,
@@ -2707,6 +2708,24 @@ export function ShellPage() {
             </button>
           </div>
           <div className="flex items-center gap-1">
+            {!inGroup &&
+            activeSnapshot?.messages.some((message) =>
+              message.blocks.some(
+                (block) =>
+                  block.kind === "bot_message_sent" || block.kind === "bot_message_received",
+              ),
+            ) ? (
+              <button
+                type="button"
+                title={t`Bot messages`}
+                aria-label={t`Bot messages`}
+                onClick={() => setPeerMessagesOpen(true)}
+                className="app-no-drag grid h-[30px] w-[34px] place-items-center rounded-[9px] hover:bg-[#1B1B1E]"
+                style={{ background: peerMessagesOpen ? "#1B1B1E" : "transparent" }}
+              >
+                <MessagesSquare size={17} strokeWidth={1.6} className="text-[#A8A8AD]" />
+              </button>
+            ) : null}
             {!inGroup && active ? (
               <button
                 type="button"
