@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { canReleaseScreenLease, canTakeScreenLease } from "@rakazo/core";
 import { z } from "zod";
@@ -248,16 +248,47 @@ export function clearComputerScreenRegistry(
   registry.delete(containerId);
 }
 
-export function stopExtraScreenCommand(index: number) {
-  if (index <= 0) return "";
+function browserKeyForScreen(screenId: string) {
+  return createHash("sha256").update(screenId).digest("hex").slice(0, 32);
+}
+
+export function browserProfilePathForScreen(screenId: string) {
+  return `/home/rakazo/.browser-profiles/chromium-bot-${browserKeyForScreen(screenId)}`;
+}
+
+function browserPidPathForScreen(screenId: string) {
+  return `/tmp/rakazo/browser-pid-${browserKeyForScreen(screenId)}`;
+}
+
+function browserRunningFunction(profile: string, pidFile: string) {
+  return [
+    "browser_running() {",
+    `  [ -s ${pidFile} ] || return 1`,
+    `  pid=$(cat ${pidFile})`,
+    `  case "$pid" in ''|*[!0-9]*) return 1 ;; esac`,
+    `  kill -0 "$pid" 2>/dev/null || return 1`,
+    `  command=$(tr '\\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null) || return 1`,
+    `  case "$command" in *${shellQuote(`--user-data-dir=${profile}`)}*) return 0 ;; *) return 1 ;; esac`,
+    "}",
+  ];
+}
+
+export function stopExtraScreenCommand(index: number, screenId: string) {
   const layout = screenPorts(index);
   const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
-  const profile = `/home/rakazo/.browser-profiles/chromium-screen-${layout.displayNumber}`;
+  const profile = browserProfilePathForScreen(screenId);
+  const pidFile = browserPidPathForScreen(screenId);
   const tokenFile = `/tmp/rakazo/control-token-${layout.displayNumber}`;
+  const stopBrowser = [
+    ...browserRunningFunction(profile, pidFile),
+    `if browser_running; then kill "$pid" 2>/dev/null || true; for i in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done; kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true; fi`,
+    `rm -f ${pidFile}`,
+  ].join("\n");
+  if (index <= 0) return stopBrowser;
   return [
+    stopBrowser,
     `pkill -f 'Xvfb ${layout.display} -screen' || true`,
     `pkill -f 'HOME=${fluxHome} DISPLAY=${layout.display} fluxbox' || true`,
-    `pkill -f -- '--user-data-dir=${profile}' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.viewVncPort}' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.controlVncPort}' || true`,
     `pkill -f '^/usr/bin/python3 .*websockify.*${layout.viewPort}' || true`,
@@ -266,29 +297,52 @@ export function stopExtraScreenCommand(index: number) {
   ].join("; ");
 }
 
-export function ensureScreenCommand(index: number) {
+export function ensureScreenCommand(index: number, screenId: string) {
   const layout = screenPorts(index);
-  if (index === 0) {
-    return `for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1`;
-  }
   const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
   const log = `/tmp/rakazo/screen-${layout.displayNumber}`;
-  const profile = `/home/rakazo/.browser-profiles/chromium-screen-${layout.displayNumber}`;
+  const profile = browserProfilePathForScreen(screenId);
+  const pidFile = browserPidPathForScreen(screenId);
+  const sharedProfile = "/home/rakazo/.browser-profiles/chromium";
+  const setupDisplay =
+    index === 0
+      ? [
+          `for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && break; sleep 0.1; done`,
+        ]
+      : [
+          `if ! xdpyinfo -display ${layout.display} >/dev/null 2>&1; then`,
+          `  mkdir -p /tmp/rakazo ${fluxHome}/.fluxbox /tmp/.X11-unix`,
+          `  rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber}`,
+          `  Xvfb ${layout.display} -screen 0 1280x800x24 -ac +extension RANDR +render -noreset >${log}-xvfb.log 2>&1 &`,
+          `  for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && break; sleep 0.1; done`,
+          `  xdpyinfo -display ${layout.display} >/dev/null 2>&1 || exit 1`,
+          `  cp /etc/rakazo/fluxbox/init ${fluxHome}/.fluxbox/init`,
+          `  cp /etc/rakazo/fluxbox/apps ${fluxHome}/.fluxbox/apps 2>/dev/null || true`,
+          `  cp /etc/rakazo/fluxbox/menu ${fluxHome}/.fluxbox/menu 2>/dev/null || true`,
+          `  HOME=${fluxHome} DISPLAY=${layout.display} fluxbox -rc ${fluxHome}/.fluxbox/init >${log}-fluxbox.log 2>&1 &`,
+          "fi",
+        ];
+  const setupView =
+    index === 0
+      ? []
+      : [
+          `if ! (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1; then`,
+          `  x11vnc -display ${layout.display} -forever -shared -viewonly -nopw -listen 127.0.0.1 -rfbport ${layout.viewVncPort} -xkb -ncache 0 >${log}-x11vnc.log 2>&1 &`,
+          `  websockify --heartbeat=30 --web=/usr/share/novnc 0.0.0.0:${layout.viewPort} 127.0.0.1:${layout.viewVncPort} >${log}-novnc.log 2>&1 &`,
+          "fi",
+        ];
   return [
-    `xdpyinfo -display ${layout.display} >/dev/null 2>&1 && exit 0 || true`,
-    `mkdir -p /tmp/rakazo ${fluxHome}/.fluxbox /tmp/.X11-unix ${profile}`,
-    `rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber}`,
-    `Xvfb ${layout.display} -screen 0 1280x800x24 -ac +extension RANDR +render -noreset >${log}-xvfb.log 2>&1 &`,
-    `for i in $(seq 1 100); do xdpyinfo -display ${layout.display} >/dev/null 2>&1 && break; sleep 0.1; done`,
+    "set -eu",
+    ...setupDisplay,
     `xdpyinfo -display ${layout.display} >/dev/null 2>&1 || exit 1`,
-    `cp /etc/rakazo/fluxbox/init ${fluxHome}/.fluxbox/init`,
-    `cp /etc/rakazo/fluxbox/apps ${fluxHome}/.fluxbox/apps 2>/dev/null || true`,
-    `cp /etc/rakazo/fluxbox/menu ${fluxHome}/.fluxbox/menu 2>/dev/null || true`,
-    `HOME=${fluxHome} DISPLAY=${layout.display} fluxbox -rc ${fluxHome}/.fluxbox/init >${log}-fluxbox.log 2>&1 &`,
-    `if [ -d /home/rakazo/.browser-profiles/chromium ]; then cp -a /home/rakazo/.browser-profiles/chromium/. ${profile}/; rm -f ${profile}/SingletonLock ${profile}/SingletonCookie ${profile}/SingletonSocket; fi`,
-    `DISPLAY=${layout.display} HOME=/home/rakazo rakazo-browser --user-data-dir=${profile} >${log}-browser.log 2>&1 &`,
-    `x11vnc -display ${layout.display} -forever -shared -viewonly -nopw -listen 127.0.0.1 -rfbport ${layout.viewVncPort} -xkb -ncache 0 >${log}-x11vnc.log 2>&1 &`,
-    `websockify --heartbeat=30 --web=/usr/share/novnc 0.0.0.0:${layout.viewPort} 127.0.0.1:${layout.viewVncPort} >${log}-novnc.log 2>&1 &`,
+    `mkdir -p /tmp/rakazo ${profile}`,
+    `if [ ! -e ${shellQuote(`${profile}/Local State`)} ] && [ -d ${sharedProfile} ]; then cp -a ${sharedProfile}/. ${profile}/; fi`,
+    `rm -f ${profile}/SingletonLock ${profile}/SingletonCookie ${profile}/SingletonSocket`,
+    ...browserRunningFunction(profile, pidFile),
+    `if ! browser_running; then DISPLAY=${layout.display} HOME=/home/rakazo rakazo-browser --user-data-dir=${profile} >${log}-browser.log 2>&1 & printf %s "$!" >${pidFile}; fi`,
+    `for i in $(seq 1 40); do browser_running && break; sleep 0.25; done`,
+    `browser_running || exit 1`,
+    ...setupView,
     `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
     "exit 1",
   ].join("\n");
@@ -297,6 +351,7 @@ export function ensureScreenCommand(index: number) {
 export function containerActionStep(
   action: z.infer<typeof computerActionSchema>,
   display = ":1",
+  browserProfile?: string,
 ): { argv: string[] } | { waitMs: number } {
   if (action.kind === "wait") {
     return { waitMs: Math.min(Math.max(action.ms, 0), 5_000) };
@@ -318,12 +373,22 @@ export function containerActionStep(
     const target = /^https?:\/\//i.test(action.path)
       ? action.path
       : workspaceTarget(normalizeWorkspaceRelative(action.path));
-    argv = ["env", `DISPLAY=${display}`, "xdg-open", target];
+    argv = [
+      "env",
+      `DISPLAY=${display}`,
+      ...(browserProfile ? [`RAKAZO_BROWSER_PROFILE=${browserProfile}`] : []),
+      "xdg-open",
+      target,
+    ];
   } else {
-    const application = DOCKER_BROWSER_ALIASES.has(action.application.toLowerCase())
-      ? "rakazo-browser"
-      : action.application;
-    argv = ["env", `DISPLAY=${display}`, application, ...(action.uri ? [action.uri] : [])];
+    const browser = DOCKER_BROWSER_ALIASES.has(action.application.toLowerCase());
+    argv = [
+      "env",
+      `DISPLAY=${display}`,
+      ...(browser && browserProfile ? [`RAKAZO_BROWSER_PROFILE=${browserProfile}`] : []),
+      browser ? "rakazo-browser" : action.application,
+      ...(action.uri ? [action.uri] : []),
+    ];
   }
   return { argv };
 }
@@ -331,8 +396,9 @@ export function containerActionStep(
 export function containerActionSteps(
   actions: Array<z.infer<typeof computerActionSchema>>,
   display = ":1",
+  browserProfile?: string,
 ) {
-  return actions.map((action) => containerActionStep(action, display));
+  return actions.map((action) => containerActionStep(action, display, browserProfile));
 }
 
 export function normalizeWorkspaceRelative(value: string) {

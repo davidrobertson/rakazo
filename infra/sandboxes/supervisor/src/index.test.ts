@@ -7,6 +7,7 @@ import { resolveDockerSocketPath, supervisorApp, waitForScreenReady } from "./in
 import {
   assertRequestIdentity,
   attemptComputerControl,
+  browserProfilePathForScreen,
   ComputerControlUnavailableError,
   clearComputerScreenRegistry,
   completeReleasedScreen,
@@ -261,8 +262,30 @@ describe("sandbox supervisor input containment", () => {
 
   it("keeps browser routing argv identical for control and Docker exec fallback", () => {
     const action = { kind: "launch" as const, application: "chromium", uri: "https://example.com" };
-    expect(containerActionSteps([action], ":2")).toEqual([
-      { argv: ["env", "DISPLAY=:2", "rakazo-browser", "https://example.com"] },
+    const profile = browserProfilePathForScreen("writer");
+    expect(containerActionSteps([action], ":2", profile)).toEqual([
+      {
+        argv: [
+          "env",
+          "DISPLAY=:2",
+          `RAKAZO_BROWSER_PROFILE=${profile}`,
+          "rakazo-browser",
+          "https://example.com",
+        ],
+      },
+    ]);
+    expect(
+      containerActionSteps([{ kind: "open", path: "https://example.com" }], ":2", profile),
+    ).toEqual([
+      {
+        argv: [
+          "env",
+          "DISPLAY=:2",
+          `RAKAZO_BROWSER_PROFILE=${profile}`,
+          "xdg-open",
+          "https://example.com",
+        ],
+      },
     ]);
   });
 
@@ -423,20 +446,42 @@ describe("sandbox supervisor input containment", () => {
     expect(nextScreenIndex(assigned, "writer")).toBe(0);
     expect(nextScreenIndex(assigned, "researcher")).toBe(1);
     expect(nextScreenIndex(assigned, "writer")).toBe(0);
-    expect(ensureScreenCommand(0)).toContain("-display :1");
-    expect(ensureScreenCommand(0)).toContain("seq 1 100");
-    expect(ensureScreenCommand(1)).toContain("Xvfb :2");
-    expect(ensureScreenCommand(1)).toContain("rfbport 5902");
-    expect(ensureScreenCommand(1)).toContain("0.0.0.0:6082");
+    expect(ensureScreenCommand(0, "writer")).toContain("-display :1");
+    expect(ensureScreenCommand(0, "writer")).toContain("seq 1 100");
+    expect(ensureScreenCommand(1, "researcher")).toContain("Xvfb :2");
+    expect(ensureScreenCommand(1, "researcher")).toContain("rfbport 5902");
+    expect(ensureScreenCommand(1, "researcher")).toContain("0.0.0.0:6082");
     expect(() => nextScreenIndex(assigned, "overflow", undefined, 1)).toThrow(
       /cannot allocate another screen/,
     );
   });
 
   it("generates syntactically valid shell to start an extra display", () => {
-    const result = spawnSync("bash", ["-n"], { input: ensureScreenCommand(1) });
-    expect(result.status).toBe(0);
-    expect(result.stderr.toString()).toBe("");
+    for (const command of [
+      ensureScreenCommand(0, "writer"),
+      ensureScreenCommand(1, "researcher"),
+      stopExtraScreenCommand(0, "writer"),
+      stopExtraScreenCommand(1, "researcher"),
+    ]) {
+      const result = spawnSync("bash", ["-n"], { input: command });
+      expect(result.status).toBe(0);
+      expect(result.stderr.toString()).toBe("");
+    }
+  });
+
+  it("keeps each bot's Chromium profile stable when its display slot changes", () => {
+    const writer = browserProfilePathForScreen("writer");
+    const researcher = browserProfilePathForScreen("researcher");
+
+    expect(writer).not.toBe(researcher);
+    expect(ensureScreenCommand(0, "writer")).toContain(`--user-data-dir=${writer}`);
+    expect(ensureScreenCommand(3, "writer")).toContain(`--user-data-dir=${writer}`);
+    expect(ensureScreenCommand(0, "researcher")).toContain(`--user-data-dir=${researcher}`);
+    expect(ensureScreenCommand(0, "writer")).toContain("browser-pid-");
+    expect(ensureScreenCommand(0, "writer")).not.toContain("pgrep -f");
+    expect(browserProfilePathForScreen("../../writer")).toMatch(
+      /^\/home\/rakazo\/\.browser-profiles\/chromium-bot-[0-9a-f]+$/,
+    );
   });
 
   it("frees a released screen slot so a ninth Team bot can reuse it", () => {
@@ -506,13 +551,18 @@ describe("sandbox supervisor input containment", () => {
     expect(releaseAssignedScreen(assigned, "writer", "run-2:2")).toBe(0);
   });
 
-  it("stops extra displays without touching the primary desktop", () => {
-    expect(stopExtraScreenCommand(0)).toBe("");
-    expect(stopExtraScreenCommand(1)).toContain("Xvfb :2 -screen");
-    expect(stopExtraScreenCommand(1)).toContain("rfbport 5902");
-    expect(stopExtraScreenCommand(1)).toContain("websockify.*6082");
-    expect(stopExtraScreenCommand(1)).not.toMatch(/Xvfb :1 /);
-    expect(stopExtraScreenCommand(1)).not.toMatch(/6080/);
+  it("stops the released bot's browser without tearing down the primary desktop", () => {
+    const primary = stopExtraScreenCommand(0, "writer");
+    expect(primary).toContain(`--user-data-dir=${browserProfilePathForScreen("writer")}`);
+    expect(primary).toContain("kill -KILL");
+    expect(primary).not.toMatch(/Xvfb :1 /);
+    expect(primary).not.toMatch(/6080/);
+
+    const extra = stopExtraScreenCommand(1, "researcher");
+    expect(extra).toContain("Xvfb :2 -screen");
+    expect(extra).toContain("rfbport 5902");
+    expect(extra).toContain("websockify.*6082");
+    expect(extra).toContain(`--user-data-dir=${browserProfilePathForScreen("researcher")}`);
   });
 
   it("parses a captured frame without trusting optional desktop metadata", () => {

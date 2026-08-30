@@ -33,6 +33,7 @@ import { assertComputerHomeWritable } from "./home-ownership.js";
 import {
   assertRequestIdentity,
   attemptComputerControl,
+  browserProfilePathForScreen,
   ComputerControlUnavailableError,
   clearComputerScreenRegistry,
   completeReleasedScreen,
@@ -261,7 +262,7 @@ app.post("/computers/:id/exec", async (c) => {
 
 app.post("/computers/:id/observe", async (c) => {
   try {
-    const { container, info, layout } = await managedScreen(
+    const { container, info, layout, browserProfile } = await managedScreen(
       c.req.param("id"),
       c.req.header("x-rakazo-bot-id"),
       c.req.header("x-rakazo-space-id"),
@@ -272,7 +273,14 @@ app.post("/computers/:id/observe", async (c) => {
     const observation = await preferComputerControl(
       control
         ? async () => {
-            const result = await controlDesktop(control, [], layout.display, true, 0);
+            const result = await controlDesktop(
+              control,
+              [],
+              layout.display,
+              browserProfile,
+              true,
+              0,
+            );
             if (!result.observation) throw new Error("computer control returned no observation");
             return result.observation;
           }
@@ -295,7 +303,7 @@ app.post("/computers/:id/actions", async (c) => {
     })
     .parse(await c.req.json());
   try {
-    const { container, info, layout } = await managedScreen(
+    const { container, info, layout, browserProfile } = await managedScreen(
       c.req.param("id"),
       c.req.header("x-rakazo-bot-id"),
       c.req.header("x-rakazo-space-id"),
@@ -310,6 +318,7 @@ app.post("/computers/:id/actions", async (c) => {
               control,
               body.actions,
               layout.display,
+              browserProfile,
               body.observe !== false,
               body.settleMs ?? 0,
             )
@@ -318,7 +327,7 @@ app.post("/computers/:id/actions", async (c) => {
     if (attempt.status === "failed") throw attempt.error;
     const controlResult = attempt.status === "ok" ? attempt.value : undefined;
     if (shouldReplayComputerActions(attempt) && body.actions.length)
-      await applyContainerActions(container, body.actions, layout.display);
+      await applyContainerActions(container, body.actions, layout.display, browserProfile);
     if (shouldReplayComputerActions(attempt) && body.settleMs)
       await new Promise((resolve) => setTimeout(resolve, body.settleMs));
     return c.json({
@@ -534,7 +543,7 @@ app.delete("/computers/:id/screen", async (c) => {
     const index = assigned
       ? releaseAssignedScreen(assigned, screenId, c.req.header("x-rakazo-screen-lease-id"))
       : undefined;
-    const stop = index !== undefined ? stopExtraScreenCommand(index) : "";
+    const stop = index !== undefined ? stopExtraScreenCommand(index, screenId) : "";
     try {
       if (stop) {
         await runContainerCommand(container, ["bash", "-lc", stop]).catch(() => undefined);
@@ -678,14 +687,19 @@ async function managedScreen(
     assigned = new Map();
     computerScreens.set(id, assigned);
   }
-  const index = nextScreenIndex(assigned, screenId || botId || id, screenLeaseId);
+  const screenKey = screenId || botId || id;
+  const index = nextScreenIndex(assigned, screenKey, screenLeaseId);
   const layout = screenPorts(index);
-  const ensured = await runContainerCommand(container, ["bash", "-lc", ensureScreenCommand(index)]);
+  const ensured = await runContainerCommand(container, [
+    "bash",
+    "-lc",
+    ensureScreenCommand(index, screenKey),
+  ]);
   if (ensured.code !== 0) {
-    assigned.delete(screenId || botId || id);
+    assigned.delete(screenKey);
     throw new Error(ensured.stderr || `computer screen ${layout.display} failed to start`);
   }
-  return { container, info, layout };
+  return { container, info, layout, browserProfile: browserProfilePathForScreen(screenKey) };
 }
 
 function isRakazoContainer(info: Docker.ContainerInspectInfo, botId: string, spaceId: string) {
@@ -722,6 +736,7 @@ async function controlDesktop(
   endpoint: { url: string; token: string },
   actions: Array<z.infer<typeof computerActionSchema>>,
   display: string,
+  browserProfile: string,
   observe: boolean,
   settleMs: number,
 ) {
@@ -734,7 +749,7 @@ async function controlDesktop(
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        steps: containerActionSteps(actions, display),
+        steps: containerActionSteps(actions, display, browserProfile),
         display,
         observe,
         settleMs,
@@ -1023,6 +1038,7 @@ async function applyContainerActions(
   container: Docker.Container,
   actions: Array<z.infer<typeof computerActionSchema>>,
   display = ":1",
+  browserProfile?: string,
 ) {
   const script = [
     "import json, subprocess, sys, time",
@@ -1036,7 +1052,7 @@ async function applyContainerActions(
     "python3",
     "-c",
     script,
-    JSON.stringify(containerActionSteps(actions, display)),
+    JSON.stringify(containerActionSteps(actions, display, browserProfile)),
   ]);
   if (result.code !== 0) throw new Error(result.stderr || "computer action failed");
 }
