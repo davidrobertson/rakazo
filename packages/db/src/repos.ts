@@ -183,6 +183,27 @@ export function createRepos(prisma: PrismaClient) {
         },
         orderBy: [{ pinned: "desc" }, { position: "asc" }, { createdAt: "asc" }],
       });
+      // Classify peer runs by trigger so a preview window that misses the receipt
+      // still skips bot_message tails (Message has no Run relation to include).
+      const previewRunIds = [
+        ...new Set(
+          bots.flatMap((bot) =>
+            (bot.thread?.messages ?? [])
+              .map((message) => message.runId)
+              .filter((runId): runId is string => Boolean(runId)),
+          ),
+        ),
+      ];
+      const knownPeerRunIds = new Set(
+        previewRunIds.length === 0
+          ? []
+          : (
+              await prisma.run.findMany({
+                where: { id: { in: previewRunIds }, trigger: "bot_message" },
+                select: { id: true },
+              })
+            ).map((run) => run.id),
+      );
       return bots.map((bot) => {
         const newest = latestUserVisibleMessage(
           (bot.thread?.messages ?? []).map((message) => ({
@@ -190,6 +211,7 @@ export function createRepos(prisma: PrismaClient) {
             blocks: message.blocks as MessageBlock[],
             runId: message.runId ?? undefined,
           })),
+          { knownPeerRunIds },
         );
         const blocks = (newest?.blocks ?? []) as Array<{
           kind?: string;

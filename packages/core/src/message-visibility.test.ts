@@ -66,4 +66,18 @@ describe("user-visible messages", () => {
     ];
     expect(latestUserVisibleMessage(newestFirst)?.id).toBe("answer");
   });
+
+  it("hides peer-run tails when knownPeerRunIds supplies the run without a receipt", () => {
+    const newestFirst = [
+      message("reply", "run-peer", [{ kind: "text", text: "Echoed peer reply" }]),
+      message("activity", "run-peer", [
+        { kind: "steps", steps: [{ label: "Message bot", count: 1 }] },
+      ]),
+      message("answer", "run-user", [{ kind: "text", text: "Visible answer" }]),
+    ];
+    expect(latestUserVisibleMessage(newestFirst, { knownPeerRunIds: ["run-peer"] })?.id).toBe(
+      "answer",
+    );
+    expect(latestUserVisibleMessage(newestFirst)?.id).toBe("reply");
+  });
 });

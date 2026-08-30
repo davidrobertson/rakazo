@@ -11,6 +11,11 @@ export type UserVisibleMessagesOptions = {
    * Web hides them because PeerMessagesOverlay covers that history.
    */
   includePeerReceipts?: boolean;
+  /**
+   * Extra peer-run ids (e.g. from `run.trigger === "bot_message"`) when the
+   * receipt may fall outside the loaded message window.
+   */
+  knownPeerRunIds?: ReadonlySet<string> | readonly string[];
 };
 
 function isPeerReceipt(blocks: readonly MessageBlock[]): boolean {
@@ -19,12 +24,18 @@ function isPeerReceipt(blocks: readonly MessageBlock[]): boolean {
   );
 }
 
-function peerRunIdsOf(messages: readonly PresentableMessage[]): Set<string> {
-  return new Set(
+function peerRunIdsOf(
+  messages: readonly PresentableMessage[],
+  knownPeerRunIds?: ReadonlySet<string> | readonly string[],
+): Set<string> {
+  const peerRunIds = new Set(
     messages
       .filter((message) => message.blocks.some((block) => block.kind === "bot_message_received"))
       .flatMap((message) => (message.runId ? [message.runId] : [])),
   );
+  if (!knownPeerRunIds) return peerRunIds;
+  for (const runId of knownPeerRunIds) peerRunIds.add(runId);
+  return peerRunIds;
 }
 
 /** Drop peer-run activity/replies; optionally keep sent/received receipt rows. */
@@ -32,7 +43,7 @@ export function userVisibleMessages<T extends PresentableMessage>(
   messages: readonly T[],
   options: UserVisibleMessagesOptions = {},
 ): T[] {
-  const peerRunIds = peerRunIdsOf(messages);
+  const peerRunIds = peerRunIdsOf(messages, options.knownPeerRunIds);
   const includePeerReceipts = options.includePeerReceipts === true;
 
   return messages.filter((message) => {
@@ -43,7 +54,7 @@ export function userVisibleMessages<T extends PresentableMessage>(
 
 /**
  * Newest-first scan for the first user-visible message (sidebar preview).
- * Callers should pass a short newest-desc window; peer classification is limited to that window.
+ * Prefer passing knownPeerRunIds when the receipt may sit outside the window.
  */
 export function latestUserVisibleMessage<T extends PresentableMessage>(
   messagesNewestFirst: readonly T[],
