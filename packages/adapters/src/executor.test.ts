@@ -1,3 +1,4 @@
+import { BOT_INSTRUCTIONS_MAX_LENGTH } from "@rakazo/contracts";
 import { ONCE_ROUTINE_CRON } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
@@ -30,6 +31,16 @@ describe("bot instruction composition", () => {
 
   it("returns team instructions when individual bot instructions are empty", () => {
     expect(composeBotInstructions("Team instructions", "")).toBe("Team instructions");
+  });
+
+  it("caps combined instructions at the bot instruction limit", () => {
+    const teamInstructions = "T".repeat(BOT_INSTRUCTIONS_MAX_LENGTH - 10);
+    const botInstructions = "B".repeat(BOT_INSTRUCTIONS_MAX_LENGTH);
+
+    const composed = composeBotInstructions(teamInstructions, botInstructions);
+
+    expect(composed).toHaveLength(BOT_INSTRUCTIONS_MAX_LENGTH);
+    expect(composed).toBe(`${teamInstructions}\n\n${"B".repeat(8)}`);
   });
 });
 

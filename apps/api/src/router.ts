@@ -382,7 +382,8 @@ export function createRouter(deps: RouterDeps) {
             select: { role: true },
           }),
         ]);
-        const roles = member?.role.split(",").map((role) => role.trim()) ?? [];
+        if (!member) throw new ORPCError("FORBIDDEN");
+        const roles = member.role.split(",").map((role) => role.trim());
         return { teamInstructions: workspace.teamInstructions, canEdit: roles.includes("owner") };
       }),
       update: authed.workspaceSettings.update.handler(async ({ context, input }) => {

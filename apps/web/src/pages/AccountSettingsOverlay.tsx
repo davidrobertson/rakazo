@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { ApprovalRulesSettings } from "../components/ApprovalRulesSettings";
+import { BuiButton, BuiCard } from "../components/beautiful-ui/primitives";
 import {
   ComputersUnavailableHint,
   computersAreUnavailable,
@@ -170,7 +171,7 @@ export function AccountSettingsOverlay({
           {email ? <p className="mt-1 text-[13px] text-[#7A7A80]">{email}</p> : null}
         </section>
 
-        <section className="mt-5 rounded-[14px] border border-[#26262A] bg-[#101012] px-4 py-4">
+        <BuiCard className="mt-5 border border-[#26262A] bg-[#101012] px-4 py-4">
           <h3 className="text-[15px] font-medium text-[#ECECEE]">
             <Trans>Team instructions</Trans>
           </h3>
@@ -186,11 +187,7 @@ export function AccountSettingsOverlay({
             maxLength={20_000}
             rows={6}
             readOnly={!canEditTeamInstructions}
-            disabled={
-              teamInstructionsStatus === "loading" ||
-              teamInstructionsStatus === "saving" ||
-              !canEditTeamInstructions
-            }
+            disabled={teamInstructionsStatus === "loading" || teamInstructionsStatus === "saving"}
             aria-label={t`Team instructions`}
             className="mt-3 w-full resize-y rounded-[12px] border border-[#303034] bg-[#0B0B0D] px-3 py-2.5 text-[13.5px] leading-5 text-[#ECECEE] outline-none focus:border-[#5A5A62] disabled:opacity-50"
             placeholder={t`Add instructions that should apply to every bot on the team`}
@@ -210,21 +207,20 @@ export function AccountSettingsOverlay({
               ) : null}
             </p>
             {canEditTeamInstructions ? (
-              <button
-                type="button"
+              <BuiButton
+                tone="accent"
                 onClick={() => void saveTeamInstructions()}
                 disabled={
                   teamInstructionsStatus === "loading" ||
                   teamInstructionsStatus === "saving" ||
                   teamInstructions === savedTeamInstructions
                 }
-                className="rounded-full bg-[#ECECEE] px-4 py-2 text-[13px] font-medium text-[#151517] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {teamInstructionsStatus === "saving" ? <Trans>Saving…</Trans> : <Trans>Save</Trans>}
-              </button>
+              </BuiButton>
             ) : null}
           </div>
-        </section>
+        </BuiCard>
         {phoneEnabled && onOpenPhone ? (
           <section className="mt-5 rounded-[14px] border border-[#26262A] bg-[#101012] px-4 py-4">
             <h3 className="text-[15px] font-medium text-[#ECECEE]">

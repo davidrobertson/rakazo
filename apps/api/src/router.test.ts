@@ -97,7 +97,7 @@ describe("account preferences", () => {
 });
 
 describe("workspace settings", () => {
-  function workspaceSettingsDeps(teamInstructions: string, role = "owner") {
+  function workspaceSettingsDeps(teamInstructions: string, role: string | null = "owner") {
     const update = vi.fn().mockResolvedValue({});
     const prisma = {
       organization: {
@@ -105,7 +105,7 @@ describe("workspace settings", () => {
         findUniqueOrThrow: vi.fn().mockResolvedValue({ teamInstructions }),
       },
       member: {
-        findFirst: vi.fn().mockResolvedValue({ role }),
+        findFirst: vi.fn().mockResolvedValue(role === null ? null : { role }),
       },
     } as unknown as PrismaClient;
     const deps = { prisma } as unknown as RouterDeps;
@@ -135,6 +135,21 @@ describe("workspace settings", () => {
     await expect(response.json()).resolves.toEqual({
       json: { teamInstructions: instructions, canEdit: false },
     });
+  });
+
+  it("rejects workspace settings reads when membership is missing", async () => {
+    const { actor, handler } = workspaceSettingsDeps("Private workspace instructions", null);
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/workspaceSettings/get", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: null }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(403);
   });
 
   it("persists and returns multiline team instructions", async () => {
