@@ -33,14 +33,14 @@ describe("bot instruction composition", () => {
     expect(composeBotInstructions("Team instructions", "")).toBe("Team instructions");
   });
 
-  it("caps combined instructions at the bot instruction limit", () => {
-    const teamInstructions = "T".repeat(BOT_INSTRUCTIONS_MAX_LENGTH - 10);
+  it("preserves full team and bot instructions when both reach their limits", () => {
+    const teamInstructions = "T".repeat(BOT_INSTRUCTIONS_MAX_LENGTH);
     const botInstructions = "B".repeat(BOT_INSTRUCTIONS_MAX_LENGTH);
 
     const composed = composeBotInstructions(teamInstructions, botInstructions);
 
-    expect(composed).toHaveLength(BOT_INSTRUCTIONS_MAX_LENGTH);
-    expect(composed).toBe(`${teamInstructions}\n\n${"B".repeat(8)}`);
+    expect(composed).toHaveLength(BOT_INSTRUCTIONS_MAX_LENGTH * 2 + 2);
+    expect(composed).toBe(`${teamInstructions}\n\n${botInstructions}`);
   });
 });
 

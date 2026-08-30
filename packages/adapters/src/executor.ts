@@ -23,11 +23,7 @@ import {
   runContinueJob,
 } from "@rakazo/adapter-kit";
 import type { MessageBlock, RunStatus } from "@rakazo/contracts";
-import {
-  ATTACHMENT_MAX_BYTES,
-  BOT_INSTRUCTIONS_MAX_LENGTH,
-  isAttachmentImageMimeType,
-} from "@rakazo/contracts";
+import { ATTACHMENT_MAX_BYTES, isAttachmentImageMimeType } from "@rakazo/contracts";
 import {
   type ActionApprovalRule,
   appendTextSegment,
@@ -307,13 +303,12 @@ function tokenizeProtectedShellCommand(command: string): string[] | "dynamic" {
   }
 }
 
-/** Prepend workspace guidance without exceeding the bot-instruction payload limit. */
 export function composeBotInstructions(teamInstructions: string, botInstructions: string): string {
   if (!teamInstructions.trim()) return botInstructions;
   if (!botInstructions) return teamInstructions;
   return `${teamInstructions}
 
-${botInstructions}`.slice(0, BOT_INSTRUCTIONS_MAX_LENGTH);
+${botInstructions}`;
 }
 
 export function isProtectedComputerLifecycleCommand(command: string): boolean {
