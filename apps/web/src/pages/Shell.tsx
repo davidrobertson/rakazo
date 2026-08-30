@@ -55,6 +55,7 @@ import {
   serializeComposerPrompt,
   speechFromBlocks,
   truncateSlashDescription,
+  userVisibleMessages,
 } from "@rakazo/core";
 import {
   AvatarStyleProvider,
@@ -2748,7 +2749,7 @@ export function ShellPage() {
           key={activeSnapshot?.threadId}
           scrollRef={messageScroll}
           artifactTarget={transcriptArtifactTarget}
-          messages={activeSnapshot?.messages ?? []}
+          messages={userVisibleMessages(activeSnapshot?.messages ?? [])}
           olderCursor={activeSnapshot?.olderCursor ?? null}
           loadingOlder={loadingOlder}
           answerableAskMessageId={answerableAskMessageId}
