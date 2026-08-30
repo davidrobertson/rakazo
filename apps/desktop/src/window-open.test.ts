@@ -14,14 +14,16 @@ describe("desktop child windows", () => {
     ).toBe(false);
   });
 
-  it.each(["rakazo-model-oauth", "rakazo-mcp-oauth", "rakazo-app-connect"])(
-    "keeps the intentional %s flow in an Electron popup",
-    (frameName) => {
-      expect(
-        shouldOpenInAppPopup(appOrigin, "https://provider.example.com/authorize", frameName),
-      ).toBe(true);
-    },
-  );
+  it.each([
+    "rakazo-model-oauth",
+    "rakazo-mcp-oauth",
+    "rakazo-app-connect",
+    "rakazo-plugin-connect",
+  ])("keeps the intentional %s flow in an Electron popup", (frameName) => {
+    expect(
+      shouldOpenInAppPopup(appOrigin, "https://provider.example.com/authorize", frameName),
+    ).toBe(true);
+  });
 
   it("rejects malformed URLs and non-HTTPS third-party targets", () => {
     expect(shouldOpenInAppPopup(appOrigin, "not a url", "rakazo-model-oauth")).toBe(false);
