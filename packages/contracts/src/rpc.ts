@@ -10,6 +10,7 @@ import {
   ArtifactSchema,
   ArtifactWithContentSchema,
   AvatarStyleSchema,
+  BOT_INSTRUCTIONS_MAX_LENGTH,
   BotMcpServerSchema,
   BotSchema,
   BotSectionSchema,
@@ -124,6 +125,12 @@ export const appContract = {
   me: oc.output(MeSchema),
   preferences: {
     update: oc.input(z.object({ avatarStyle: AvatarStyleSchema })).output(MeSchema),
+  },
+  workspaceSettings: {
+    get: oc.output(z.object({ teamInstructions: z.string(), canEdit: z.boolean() })),
+    update: oc
+      .input(z.object({ teamInstructions: z.string().max(BOT_INSTRUCTIONS_MAX_LENGTH) }))
+      .output(z.object({ teamInstructions: z.string(), canEdit: z.literal(true) })),
   },
   bootstrap: oc.input(z.object({ botId: Id.optional() })).output(AppBootstrapSchema),
   deployment: {

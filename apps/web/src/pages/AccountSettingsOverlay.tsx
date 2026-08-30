@@ -16,6 +16,7 @@ import {
 } from "../components/ComputersUnavailableHint";
 import { SoftwareUpdateSection } from "../components/SoftwareUpdateSection";
 import { getActiveUiLocale, setUiLocale } from "../lib/i18n";
+import { rpc } from "../lib/rpc";
 import { UI_LOCALE_LABELS, UI_LOCALES, type UiLocale } from "../lib/ui-locale";
 
 export function AccountSettingsOverlay({
@@ -52,6 +53,31 @@ export function AccountSettingsOverlay({
   const localeRequestRef = useRef(0);
   const [avatarPending, setAvatarPending] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [teamInstructions, setTeamInstructions] = useState("");
+  const [savedTeamInstructions, setSavedTeamInstructions] = useState("");
+  const [canEditTeamInstructions, setCanEditTeamInstructions] = useState(false);
+  const [teamInstructionsStatus, setTeamInstructionsStatus] = useState<
+    "loading" | "idle" | "saving" | "saved" | "load-error" | "save-error"
+  >("loading");
+
+  useEffect(() => {
+    let active = true;
+    void rpc.workspaceSettings
+      .get()
+      .then((settings) => {
+        if (!active) return;
+        setTeamInstructions(settings.teamInstructions);
+        setSavedTeamInstructions(settings.teamInstructions);
+        setCanEditTeamInstructions(settings.canEdit);
+        setTeamInstructionsStatus("idle");
+      })
+      .catch(() => {
+        if (active) setTeamInstructionsStatus("load-error");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const previousFocus =
@@ -96,6 +122,19 @@ export function AccountSettingsOverlay({
     }
   }
 
+  async function saveTeamInstructions() {
+    if (!canEditTeamInstructions || teamInstructionsStatus === "saving") return;
+    setTeamInstructionsStatus("saving");
+    try {
+      const settings = await rpc.workspaceSettings.update({ teamInstructions });
+      setTeamInstructions(settings.teamInstructions);
+      setSavedTeamInstructions(settings.teamInstructions);
+      setTeamInstructionsStatus("saved");
+    } catch {
+      setTeamInstructionsStatus("save-error");
+    }
+  }
+
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-[rgba(4,4,5,.62)] p-4 sm:p-10">
       <div
@@ -131,6 +170,61 @@ export function AccountSettingsOverlay({
           {email ? <p className="mt-1 text-[13px] text-[#7A7A80]">{email}</p> : null}
         </section>
 
+        <section className="mt-5 rounded-[14px] border border-[#26262A] bg-[#101012] px-4 py-4">
+          <h3 className="text-[15px] font-medium text-[#ECECEE]">
+            <Trans>Team instructions</Trans>
+          </h3>
+          <p className="mt-2 text-[12.5px] text-[#7A7A80]">
+            <Trans>These instructions are added before every bot's individual instructions.</Trans>
+          </p>
+          <textarea
+            value={teamInstructions}
+            onChange={(event) => {
+              setTeamInstructions(event.target.value);
+              setTeamInstructionsStatus("idle");
+            }}
+            maxLength={20_000}
+            rows={6}
+            readOnly={!canEditTeamInstructions}
+            disabled={
+              teamInstructionsStatus === "loading" ||
+              teamInstructionsStatus === "saving" ||
+              !canEditTeamInstructions
+            }
+            aria-label={t`Team instructions`}
+            className="mt-3 w-full resize-y rounded-[12px] border border-[#303034] bg-[#0B0B0D] px-3 py-2.5 text-[13.5px] leading-5 text-[#ECECEE] outline-none focus:border-[#5A5A62] disabled:opacity-50"
+            placeholder={t`Add instructions that should apply to every bot on the team`}
+          />
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-[12px] text-[#7A7A80]" role="status">
+              {teamInstructionsStatus === "loading" ? (
+                <Trans>Loading team instructions…</Trans>
+              ) : teamInstructionsStatus === "load-error" ? (
+                <Trans>Couldn't load team instructions</Trans>
+              ) : teamInstructionsStatus === "save-error" ? (
+                <Trans>Couldn't save team instructions</Trans>
+              ) : teamInstructionsStatus === "saved" ? (
+                <Trans>Saved</Trans>
+              ) : !canEditTeamInstructions ? (
+                <Trans>Only workspace owners can edit team instructions.</Trans>
+              ) : null}
+            </p>
+            {canEditTeamInstructions ? (
+              <button
+                type="button"
+                onClick={() => void saveTeamInstructions()}
+                disabled={
+                  teamInstructionsStatus === "loading" ||
+                  teamInstructionsStatus === "saving" ||
+                  teamInstructions === savedTeamInstructions
+                }
+                className="rounded-full bg-[#ECECEE] px-4 py-2 text-[13px] font-medium text-[#151517] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {teamInstructionsStatus === "saving" ? <Trans>Saving…</Trans> : <Trans>Save</Trans>}
+              </button>
+            ) : null}
+          </div>
+        </section>
         {phoneEnabled && onOpenPhone ? (
           <section className="mt-5 rounded-[14px] border border-[#26262A] bg-[#101012] px-4 py-4">
             <h3 className="text-[15px] font-medium text-[#ECECEE]">

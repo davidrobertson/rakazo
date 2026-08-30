@@ -367,6 +367,33 @@ export function createRouter(deps: RouterDeps) {
         return meDto(deps, context.actor);
       }),
     },
+    workspaceSettings: {
+      get: authed.workspaceSettings.get.handler(async ({ context }) => {
+        const [workspace, member] = await Promise.all([
+          deps.prisma.organization.findUniqueOrThrow({
+            where: { id: context.actor.workspaceId },
+            select: { teamInstructions: true },
+          }),
+          deps.prisma.member.findFirst({
+            where: {
+              organizationId: context.actor.workspaceId,
+              userId: context.actor.userId,
+            },
+            select: { role: true },
+          }),
+        ]);
+        const roles = member?.role.split(",").map((role) => role.trim()) ?? [];
+        return { teamInstructions: workspace.teamInstructions, canEdit: roles.includes("owner") };
+      }),
+      update: authed.workspaceSettings.update.handler(async ({ context, input }) => {
+        await requireWorkspaceOwner(deps.prisma, context.actor);
+        await deps.prisma.organization.update({
+          where: { id: context.actor.workspaceId },
+          data: { teamInstructions: input.teamInstructions },
+        });
+        return { teamInstructions: input.teamInstructions, canEdit: true as const };
+      }),
+    },
     bootstrap: authed.bootstrap.handler(async ({ context, input }) => {
       const actor = context.actor;
       const [me, bots, botSections, archivedBots, archivedGroups] = await Promise.all([

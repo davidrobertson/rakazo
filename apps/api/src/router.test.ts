@@ -96,6 +96,122 @@ describe("account preferences", () => {
   });
 });
 
+describe("workspace settings", () => {
+  function workspaceSettingsDeps(teamInstructions: string, role = "owner") {
+    const update = vi.fn().mockResolvedValue({});
+    const prisma = {
+      organization: {
+        update,
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ teamInstructions }),
+      },
+      member: {
+        findFirst: vi.fn().mockResolvedValue({ role }),
+      },
+    } as unknown as PrismaClient;
+    const deps = { prisma } as unknown as RouterDeps;
+    const actor = {
+      workspaceId: "workspace-1",
+      userId: "user-1",
+      email: "user@rakazo.test",
+      isDeploymentOwner: true,
+    } satisfies Actor;
+    return { update, actor, handler: new RPCHandler(createRouter(deps)) };
+  }
+
+  it("returns team instructions to workspace members", async () => {
+    const instructions = "Use Acme terminology.";
+    const { actor, handler } = workspaceSettingsDeps(instructions, "member");
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/workspaceSettings/get", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: null }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      json: { teamInstructions: instructions, canEdit: false },
+    });
+  });
+
+  it("persists and returns multiline team instructions", async () => {
+    const instructions = "Use Acme terminology.\nEscalate security issues.";
+    const { update, actor, handler } = workspaceSettingsDeps(instructions);
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/workspaceSettings/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { teamInstructions: instructions } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "workspace-1" },
+      data: { teamInstructions: instructions },
+    });
+    await expect(response.json()).resolves.toEqual({
+      json: { teamInstructions: instructions, canEdit: true },
+    });
+  });
+
+  it("persists an empty value", async () => {
+    const { update, actor, handler } = workspaceSettingsDeps("");
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/workspaceSettings/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { teamInstructions: "" } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "workspace-1" },
+      data: { teamInstructions: "" },
+    });
+  });
+
+  it("rejects updates from non-owners", async () => {
+    const { update, actor, handler } = workspaceSettingsDeps("", "member");
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/workspaceSettings/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { teamInstructions: "Override the team" } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(403);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("rejects team instructions longer than the bot instruction limit", async () => {
+    const { update, actor, handler } = workspaceSettingsDeps("");
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/workspaceSettings/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { teamInstructions: "x".repeat(20_001) } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
 describe("thread answer delivery", () => {
   it("accepts a durable answer when the immediate worker wake fails", async () => {
     const answerRunInput = vi.fn().mockResolvedValue(true);

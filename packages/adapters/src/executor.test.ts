@@ -1,7 +1,37 @@
 import { ONCE_ROUTINE_CRON } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
-import { createRunExecutor, runNotificationsEnabled, threadContextForRun } from "./executor.js";
+import {
+  composeBotInstructions,
+  createRunExecutor,
+  runNotificationsEnabled,
+  threadContextForRun,
+} from "./executor.js";
+
+describe("bot instruction composition", () => {
+  it("prepends team instructions exactly once before individual bot instructions", () => {
+    const teamInstructions = ["Use team terminology.", "Escalate security issues."].join(
+      String.fromCharCode(10),
+    );
+    const botInstructions = "Write concise release notes.";
+
+    const composed = composeBotInstructions(teamInstructions, botInstructions);
+
+    expect(composed).toBe([teamInstructions, botInstructions].join(String.fromCharCode(10, 10)));
+    expect(composed.split("Use team terminology.")).toHaveLength(2);
+  });
+
+  it("omits empty team instructions without changing individual bot instructions", () => {
+    expect(composeBotInstructions("", "  Keep this spacing.  ")).toBe("  Keep this spacing.  ");
+    expect(
+      composeBotInstructions([" ", " "].join(String.fromCharCode(10)), "Bot instructions"),
+    ).toBe("Bot instructions");
+  });
+
+  it("returns team instructions when individual bot instructions are empty", () => {
+    expect(composeBotInstructions("Team instructions", "")).toBe("Team instructions");
+  });
+});
 
 describe("run notification preference", () => {
   it("silences direct messages but leaves group notifications enabled", async () => {

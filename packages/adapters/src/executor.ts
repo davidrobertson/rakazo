@@ -303,6 +303,14 @@ function tokenizeProtectedShellCommand(command: string): string[] | "dynamic" {
   }
 }
 
+export function composeBotInstructions(teamInstructions: string, botInstructions: string): string {
+  if (!teamInstructions.trim()) return botInstructions;
+  if (!botInstructions) return teamInstructions;
+  return `${teamInstructions}
+
+${botInstructions}`;
+}
+
 export function isProtectedComputerLifecycleCommand(command: string): boolean {
   const words = tokenizeProtectedShellCommand(command);
   if (words === "dynamic") return true;
@@ -742,6 +750,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           storedConnections,
           defaultCredential,
           settings,
+          workspace,
           configuredMemory,
           savedSkills,
           agentSkills,
@@ -774,6 +783,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
           }),
           findDefaultModelCredential(deps.prisma, run),
           deps.prisma.deploymentSettings.findUnique({ where: { id: "default" } }),
+          deps.prisma.organization.findUniqueOrThrow({
+            where: { id: run.workspaceId },
+            select: { teamInstructions: true },
+          }),
           deps.memoryProviders.resolve(run.workspaceId),
           deps.prisma.taughtSkill.findMany({
             where: { botId: run.botId, workspaceId: run.workspaceId, status: "saved" },
@@ -2463,7 +2476,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
               runId,
               prompt,
               instructions: [
-                bot.instructions || `${bot.name}: ${bot.title}\n${bot.description}`,
+                composeBotInstructions(
+                  workspace.teamInstructions,
+                  bot.instructions || `${bot.name}: ${bot.title}\n${bot.description}`,
+                ),
                 groupContext,
                 phoneContext,
                 memoryContext ? redactSecrets(memoryContext, runSecrets) : undefined,
