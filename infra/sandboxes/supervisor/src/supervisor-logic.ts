@@ -288,13 +288,45 @@ export function stopExtraScreenCommand(index: number, screenId: string) {
   return [
     stopBrowser,
     `pkill -f 'Xvfb ${layout.display} -screen' || true`,
-    `pkill -f 'HOME=${fluxHome} DISPLAY=${layout.display} fluxbox' || true`,
+    `pkill -f '[f]luxbox -rc ${fluxHome}/.fluxbox/init' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.viewVncPort}' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.controlVncPort}' || true`,
     `pkill -f '^/usr/bin/python3 .*websockify.*${layout.viewPort}' || true`,
     `pkill -f '^/usr/bin/python3 .*websockify.*${layout.controlPort}' || true`,
     `rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber} ${tokenFile}`,
   ].join("; ");
+}
+
+export function resetManagedScreensCommand() {
+  return [
+    "pkill -f '[c]hromium.*--user-data-dir=/home/rakazo/.browser-profiles/' 2>/dev/null || true",
+    "pkill -f '[X]vfb :[2-8] ' 2>/dev/null || true",
+    "pkill -f '[f]luxbox -rc /tmp/fluxbox-home-[2-8]/.fluxbox/init' 2>/dev/null || true",
+    "pkill -f '[x]11vnc -display :[2-8]' 2>/dev/null || true",
+    "pkill -f '[w]ebsockify.*60(8[2-9]|9[0-5])' 2>/dev/null || true",
+    "rm -f /tmp/rakazo/browser-pid-*",
+  ].join("; ");
+}
+
+export async function withKeyedLock<T>(
+  locks: Map<string, Promise<void>>,
+  key: string,
+  operation: () => Promise<T>,
+) {
+  const previous = locks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  locks.set(key, queued);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (locks.get(key) === queued) locks.delete(key);
+  }
 }
 
 export function ensureScreenCommand(index: number, screenId: string) {

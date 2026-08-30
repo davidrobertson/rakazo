@@ -51,12 +51,14 @@ import {
   parseObservation,
   preferComputerControl,
   releaseAssignedScreen,
+  resetManagedScreensCommand,
   type ScreenAssignment,
   sandboxCommandTimedOut,
   sandboxTimeoutCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
   toSandboxInput,
+  withKeyedLock,
   workspaceTarget,
 } from "./supervisor-logic.js";
 
@@ -74,6 +76,7 @@ let supervisorInfo: Docker.ContainerInspectInfo | undefined;
 const supervisorToken = resolveSupervisorToken(process.env);
 const screenNetworkMode = resolveScreenNetworkMode(process.env.SANDBOX_SCREEN_NETWORK);
 const computerScreens = new Map<string, Map<string, ScreenAssignment>>();
+const screenLifecycleLocks = new Map<string, Promise<void>>();
 
 const app = new Hono();
 
@@ -532,26 +535,29 @@ app.post("/computers/:id/input", async (c) => {
 
 app.delete("/computers/:id/screen", async (c) => {
   try {
+    const id = c.req.param("id");
     const { container } = await managedContainer(
-      c.req.param("id"),
+      id,
       c.req.header("x-rakazo-bot-id"),
       c.req.header("x-rakazo-space-id"),
     );
     const screenId =
       c.req.header("x-rakazo-screen-id") || c.req.header("x-rakazo-bot-id") || c.req.param("id");
-    const assigned = computerScreens.get(c.req.param("id"));
-    const index = assigned
-      ? releaseAssignedScreen(assigned, screenId, c.req.header("x-rakazo-screen-lease-id"))
-      : undefined;
-    const stop = index !== undefined ? stopExtraScreenCommand(index, screenId) : "";
-    try {
-      if (stop) {
-        await runContainerCommand(container, ["bash", "-lc", stop]).catch(() => undefined);
+    await withKeyedLock(screenLifecycleLocks, id, async () => {
+      const assigned = computerScreens.get(id);
+      const index = assigned
+        ? releaseAssignedScreen(assigned, screenId, c.req.header("x-rakazo-screen-lease-id"))
+        : undefined;
+      const stop = index !== undefined ? stopExtraScreenCommand(index, screenId) : "";
+      try {
+        if (stop) {
+          await runContainerCommand(container, ["bash", "-lc", stop]).catch(() => undefined);
+        }
+      } finally {
+        if (assigned && index !== undefined) completeReleasedScreen(assigned, screenId, index);
+        if (assigned?.size === 0) computerScreens.delete(id);
       }
-    } finally {
-      if (assigned && index !== undefined) completeReleasedScreen(assigned, screenId, index);
-      if (assigned?.size === 0) computerScreens.delete(c.req.param("id"));
-    }
+    });
     return c.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -567,8 +573,10 @@ app.post("/computers/:id/stop", async (c) => {
       c.req.header("x-rakazo-bot-id"),
       c.req.header("x-rakazo-space-id"),
     );
-    await container.stop().catch(() => undefined);
-    clearComputerScreenRegistry(computerScreens, id);
+    await withKeyedLock(screenLifecycleLocks, id, async () => {
+      await container.stop().catch(() => undefined);
+      clearComputerScreenRegistry(computerScreens, id);
+    });
     return c.json({ ok: true });
   } catch {
     return c.json({ error: "computer not found" }, 404);
@@ -582,8 +590,10 @@ app.delete("/computers/:id", async (c) => {
     if (!botId) throw new Error("missing computer identity");
     return await withBotLifecycleLock(botId, async () => {
       const { container } = await managedContainer(id, botId, c.req.header("x-rakazo-space-id"));
-      await container.remove({ force: true }).catch(() => undefined);
-      clearComputerScreenRegistry(computerScreens, id);
+      await withKeyedLock(screenLifecycleLocks, id, async () => {
+        await container.remove({ force: true }).catch(() => undefined);
+        clearComputerScreenRegistry(computerScreens, id);
+      });
       if (screenNetworkMode !== "internal") {
         await removeBotNetwork(botId);
       }
@@ -682,24 +692,38 @@ async function managedScreen(
   screenLeaseId: string | undefined,
 ) {
   const { container, info } = await managedContainer(id, botId, spaceId);
-  let assigned = computerScreens.get(id);
-  if (!assigned) {
-    assigned = new Map();
-    computerScreens.set(id, assigned);
-  }
-  const screenKey = screenId || botId || id;
-  const index = nextScreenIndex(assigned, screenKey, screenLeaseId);
-  const layout = screenPorts(index);
-  const ensured = await runContainerCommand(container, [
-    "bash",
-    "-lc",
-    ensureScreenCommand(index, screenKey),
-  ]);
-  if (ensured.code !== 0) {
-    assigned.delete(screenKey);
-    throw new Error(ensured.stderr || `computer screen ${layout.display} failed to start`);
-  }
-  return { container, info, layout, browserProfile: browserProfilePathForScreen(screenKey) };
+  return withKeyedLock(screenLifecycleLocks, id, async () => {
+    let assigned = computerScreens.get(id);
+    if (!assigned) {
+      const reset = await runContainerCommand(container, [
+        "bash",
+        "-lc",
+        resetManagedScreensCommand(),
+      ]);
+      if (reset.code !== 0) throw new Error(reset.stderr || "computer screens failed to reset");
+      assigned = new Map();
+      computerScreens.set(id, assigned);
+    }
+    const screenKey = screenId || botId || id;
+    const index = nextScreenIndex(assigned, screenKey, screenLeaseId);
+    const layout = screenPorts(index);
+    const ensured = await runContainerCommand(container, [
+      "bash",
+      "-lc",
+      ensureScreenCommand(index, screenKey),
+    ]);
+    if (ensured.code !== 0) {
+      await runContainerCommand(container, [
+        "bash",
+        "-lc",
+        stopExtraScreenCommand(index, screenKey),
+      ]).catch(() => undefined);
+      assigned.delete(screenKey);
+      if (assigned.size === 0) computerScreens.delete(id);
+      throw new Error(ensured.stderr || `computer screen ${layout.display} failed to start`);
+    }
+    return { container, info, layout, browserProfile: browserProfilePathForScreen(screenKey) };
+  });
 }
 
 function isRakazoContainer(info: Docker.ContainerInspectInfo, botId: string, spaceId: string) {

@@ -26,11 +26,13 @@ import {
   parseObservation,
   preferComputerControl,
   releaseAssignedScreen,
+  resetManagedScreensCommand,
   type ScreenAssignment,
   sandboxCommandTimedOut,
   sandboxTimeoutCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
+  withKeyedLock,
 } from "./supervisor-logic.js";
 
 const token = resolveSupervisorToken(process.env);
@@ -462,11 +464,44 @@ describe("sandbox supervisor input containment", () => {
       ensureScreenCommand(1, "researcher"),
       stopExtraScreenCommand(0, "writer"),
       stopExtraScreenCommand(1, "researcher"),
+      resetManagedScreensCommand(),
     ]) {
       const result = spawnSync("bash", ["-n"], { input: command });
       expect(result.status).toBe(0);
       expect(result.stderr.toString()).toBe("");
     }
+  });
+
+  it("serializes screen lifecycle operations by container", async () => {
+    const locks = new Map<string, Promise<void>>();
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = withKeyedLock(locks, "container-1", async () => {
+      events.push("ensure:start");
+      await firstBlocked;
+      events.push("ensure:end");
+    });
+    const release = withKeyedLock(locks, "container-1", async () => {
+      events.push("release");
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["ensure:start"]);
+    releaseFirst();
+    await Promise.all([first, release]);
+    expect(events).toEqual(["ensure:start", "ensure:end", "release"]);
+    expect(locks.size).toBe(0);
+  });
+
+  it("resets stale managed screens without killing unrelated container jobs", () => {
+    const command = resetManagedScreensCommand();
+    expect(command).toContain("[c]hromium.*--user-data-dir=/home/rakazo/.browser-profiles/");
+    expect(command).toContain("[X]vfb :[2-8]");
+    expect(command).toContain("rm -f /tmp/rakazo/browser-pid-*");
+    expect(command).not.toContain("pkill -9 -1");
   });
 
   it("keeps each bot's Chromium profile stable when its display slot changes", () => {
@@ -560,6 +595,7 @@ describe("sandbox supervisor input containment", () => {
 
     const extra = stopExtraScreenCommand(1, "researcher");
     expect(extra).toContain("Xvfb :2 -screen");
+    expect(extra).toContain("[f]luxbox -rc /tmp/fluxbox-home-2/.fluxbox/init");
     expect(extra).toContain("rfbport 5902");
     expect(extra).toContain("websockify.*6082");
     expect(extra).toContain(`--user-data-dir=${browserProfilePathForScreen("researcher")}`);
