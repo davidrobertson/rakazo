@@ -1,4 +1,9 @@
-import type { ConnectorCall, ConnectorTool } from "@rakazo/adapter-kit";
+import type {
+  ConnectorCall,
+  ConnectorEvent,
+  ConnectorRoute,
+  ConnectorTool,
+} from "@rakazo/adapter-kit";
 import { z } from "zod";
 
 export const DIRECT_TOOL_LIMIT = 20;
@@ -7,17 +12,22 @@ export const SELECTED_SCHEMA_MAX_BYTES = 100_000;
 const MAX_QUERY_LENGTH = 200;
 const MAX_TOOL_NAME_LENGTH = 200;
 const MAX_TOOL_ID_LENGTH = 500;
+const MAX_DESCRIPTION_LENGTH = 500;
 export const CATALOG_SEARCH = "__catalog_search";
 export const CATALOG_LOAD = "__catalog_load";
 export const CATALOG_EXECUTE = "__catalog_execute";
 
 type CatalogEntry = { id: string; tool: ConnectorTool };
 
-export function lazyCatalogTools(prefix: string, connectorId: string): ConnectorTool[] {
+export function lazyCatalogTools(
+  prefix: string,
+  connectorId: string,
+  label: string,
+): ConnectorTool[] {
   return [
     {
       name: `${prefix}_search_tools`,
-      description: `Search the connected ${prefix.toUpperCase()} tool catalog. Results contain IDs, names, and descriptions but not parameter schemas.`,
+      description: `Search connected ${label} tools.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -35,7 +45,7 @@ export function lazyCatalogTools(prefix: string, connectorId: string): Connector
     },
     {
       name: `${prefix}_load_tool`,
-      description: `Load the authoritative parameter schema for one ${prefix.toUpperCase()} tool returned by search.`,
+      description: `Load one ${label} tool's parameters by id.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -52,7 +62,7 @@ export function lazyCatalogTools(prefix: string, connectorId: string): Connector
     },
     {
       name: `${prefix}_execute_tool`,
-      description: `Execute one authorized ${prefix.toUpperCase()} tool after searching and loading its schema.`,
+      description: `Run an ${label} tool by id.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -68,6 +78,16 @@ export function lazyCatalogTools(prefix: string, connectorId: string): Connector
       route: { connectorId, toolName: CATALOG_EXECUTE },
     },
   ];
+}
+
+export function isLazyCatalogControlRoute(route: ConnectorRoute | undefined): boolean {
+  return Boolean(
+    route &&
+      !route.resourceId &&
+      (route.toolName === CATALOG_SEARCH ||
+        route.toolName === CATALOG_LOAD ||
+        route.toolName === CATALOG_EXECUTE),
+  );
 }
 
 export function catalogEntries(tools: ConnectorTool[]): CatalogEntry[] {
@@ -106,7 +126,7 @@ export function searchCatalog(
     .map(({ entry }) => ({
       id: entry.id,
       name: entry.tool.name,
-      description: entry.tool.description.slice(0, 500),
+      description: entry.tool.description.slice(0, MAX_DESCRIPTION_LENGTH),
       readOnly: entry.tool.readOnly === true,
     }));
 }
@@ -132,24 +152,60 @@ export function resolveCatalogCall(
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new Error("Tool arguments must be an object");
   }
-  let schema: z.ZodType;
+  let parsedArgs = args as Record<string, unknown>;
   try {
-    schema = z.fromJSONSchema(entry.tool.inputSchema as never);
-  } catch {
-    throw new Error("Tool schema is unsupported");
+    const schema = z.fromJSONSchema(entry.tool.inputSchema as never);
+    const parsed = schema.safeParse(args);
+    if (!parsed.success) {
+      throw new Error(`Tool arguments are invalid: ${z.prettifyError(parsed.error)}`);
+    }
+    parsedArgs = parsed.data as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Tool arguments are invalid:")) {
+      throw error;
+    }
+    // Match the direct ≤20 path: unsupported JSON Schema still executes after the object check.
   }
-  const parsed = schema.safeParse(args);
-  if (!parsed.success)
-    throw new Error(`Tool arguments are invalid: ${z.prettifyError(parsed.error)}`);
   return {
     tool: entry.tool,
     call: {
       ...call,
       tool: entry.tool.name,
-      args: parsed.data as Record<string, unknown>,
+      args: parsedArgs,
       route: entry.tool.route,
     },
   };
+}
+
+export async function* executeLazyCatalogControl(
+  call: ConnectorCall,
+  entries: CatalogEntry[],
+  executeResolved: (resolved: ConnectorCall) => AsyncIterable<ConnectorEvent>,
+): AsyncIterable<ConnectorEvent> {
+  if (call.route?.toolName === CATALOG_SEARCH) {
+    yield { type: "result", data: { tools: searchCatalog(entries, call.args) } };
+    return;
+  }
+  if (call.route?.toolName === CATALOG_LOAD) {
+    const entry = loadCatalogEntry(entries, call.args);
+    yield {
+      type: "result",
+      data: {
+        id: call.args.id,
+        name: entry.tool.name,
+        description: entry.tool.description.slice(0, MAX_DESCRIPTION_LENGTH),
+        inputSchema: entry.tool.inputSchema,
+        readOnly: entry.tool.readOnly === true,
+      },
+    };
+    return;
+  }
+  const resolved = resolveCatalogCall(call, entries);
+  yield* executeResolved(resolved.call);
+}
+
+export function uniquifyInstalledToolName(installId: string, toolName: string): string {
+  return `installed__${installId}__${toolName}`;
 }
 
 function catalogEntryId(tool: ConnectorTool): string {

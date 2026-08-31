@@ -99,7 +99,7 @@ describe("executor approval replay", () => {
     expect(resolved.call.args).toEqual({ target: "approved" });
   });
 
-  it("preserves authoritative schema normalization during approved catalog replay", () => {
+  it("keeps resolveCall parsed args when draining an approved catalog replay", () => {
     const marker = "__rakazoCatalogTool";
     const approvedRequest = {
       id: "install-A:create_item",
@@ -107,11 +107,11 @@ describe("executor approval replay", () => {
       [marker]: "installed_execute_tool",
     };
     const queue = createApprovedEffectReplayQueue([
-      { kind: "create_item", request: approvedRequest },
+      { kind: "installed__install-A__create_item", request: approvedRequest },
     ]);
     const replay = approvedCatalogReplay(queue, "installed_execute_tool", marker);
     const tool: ConnectorTool = {
-      name: "create_item",
+      name: "installed__install-A__create_item",
       description: "Create one item",
       inputSchema: {
         type: "object",
@@ -131,7 +131,9 @@ describe("executor approval replay", () => {
     );
     const replayed = approvedReplayArgs(queue.take(tool.name)!, resolved.call.args, marker);
 
+    expect(resolved.call.args).toEqual({ count: 3 });
     expect(replayed).toEqual({ count: 3 });
+    expect(replayed).not.toEqual(approvedRequest.arguments);
     expect(approvalEffectKey("run", tool.name, replayed)).toBe(
       approvalEffectKey("run", tool.name, resolved.call.args),
     );

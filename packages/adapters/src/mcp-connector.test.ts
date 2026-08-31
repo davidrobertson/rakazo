@@ -122,6 +122,64 @@ describe("MCP connector session cache", () => {
     await connector.close();
   });
 
+  it("exposes 20 MCP tools directly and switches at 21", async () => {
+    const context = {
+      workspaceId: "w1",
+      userId: "u1",
+      botId: "bot-1",
+      signal: new AbortController().signal,
+    } as never;
+    for (const count of [20, 21]) {
+      const state = {
+        failNext: false,
+        initializations: 0,
+        tools: Array.from({ length: count }, (_, index) => ({
+          name: `tool_${index}`,
+          inputSchema: { type: "object" },
+        })),
+      };
+      vi.stubGlobal("fetch", mcpFetch(state));
+      const connector = new McpConnector(
+        {
+          botMcpServer: {
+            findMany: vi.fn().mockResolvedValue([ASSIGNMENT]),
+            findFirst: vi.fn().mockResolvedValue(ASSIGNMENT),
+          },
+        } as never,
+        {} as never,
+        { network: { resolveHostname: async () => [{ address: "203.0.113.10", family: 4 }] } },
+      );
+      const tools = await connector.discoverTools(context);
+      if (count === 20) {
+        expect(tools).toHaveLength(20);
+        expect(tools[0]?.name).toMatch(/^mcp__demo__/);
+      } else {
+        expect(tools.map((tool) => tool.name)).toEqual([
+          "mcp_search_tools",
+          "mcp_load_tool",
+          "mcp_execute_tool",
+        ]);
+      }
+      await connector.close();
+    }
+  });
+
+  it("returns no tools when the MCP catalog is empty", async () => {
+    const connector = new McpConnector(
+      { botMcpServer: { findMany: vi.fn().mockResolvedValue([]) } } as never,
+      {} as never,
+    );
+    await expect(
+      connector.discoverTools({
+        workspaceId: "w1",
+        userId: "u1",
+        botId: "bot-1",
+        signal: new AbortController().signal,
+      } as never),
+    ).resolves.toEqual([]);
+    await connector.close();
+  });
+
   it("searches, loads, validates, authorizes, and executes one large-catalog tool", async () => {
     const state = {
       failNext: false,

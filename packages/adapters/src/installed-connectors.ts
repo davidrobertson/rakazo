@@ -14,14 +14,13 @@ import {
 } from "./connector-safety.js";
 import {
   CATALOG_EXECUTE,
-  CATALOG_LOAD,
-  CATALOG_SEARCH,
   catalogEntries,
   DIRECT_TOOL_LIMIT,
+  executeLazyCatalogControl,
+  isLazyCatalogControlRoute,
   lazyCatalogTools,
-  loadCatalogEntry,
   resolveCatalogCall,
-  searchCatalog,
+  uniquifyInstalledToolName,
 } from "./lazy-tool-catalog.js";
 import {
   assertSafeRemoteUrl,
@@ -132,13 +131,16 @@ export class InstalledConnectorProvider implements ConnectorProvider {
 
   async discoverTools(context: AdapterContext): Promise<ConnectorTool[]> {
     const tools = await this.authorizedTools(context);
-    return tools.length > DIRECT_TOOL_LIMIT ? lazyCatalogTools("installed", "installed") : tools;
+    return tools.length > DIRECT_TOOL_LIMIT
+      ? lazyCatalogTools("installed", "installed", "API")
+      : tools;
   }
 
   async resolveCall(
     call: ConnectorCall,
     context: AdapterContext,
   ): Promise<{ call: ConnectorCall; tool: ConnectorTool } | undefined> {
+    // Wrappers have no resourceId; real tools always do.
     if (call.route?.resourceId || call.route?.toolName !== CATALOG_EXECUTE) return undefined;
     return resolveCatalogCall(call, catalogEntries(await this.authorizedTools(context)));
   }
@@ -179,6 +181,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
         });
         return remote.map((tool) => ({
           ...tool,
+          name: uniquifyInstalledToolName(install.id, tool.name),
           route: {
             connectorId: "installed",
             resourceId: install.id,
@@ -189,7 +192,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
       if (install.kind === "api") {
         const config = ApiConfigSchema.parse(install.config);
         return config.operations.map((operation) => ({
-          name: operation.name ?? operation.id,
+          name: uniquifyInstalledToolName(install.id, operation.name ?? operation.id),
           description: operation.description ?? `${operation.method} ${operation.path}`,
           inputSchema: operation.inputSchema,
           readOnly: operation.readOnly,
@@ -207,35 +210,13 @@ export class InstalledConnectorProvider implements ConnectorProvider {
   }
 
   async *execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent> {
-    if (
-      call.route?.connectorId === "installed" &&
-      !call.route.resourceId &&
-      (call.route.toolName === CATALOG_SEARCH ||
-        call.route.toolName === CATALOG_LOAD ||
-        call.route.toolName === CATALOG_EXECUTE)
-    ) {
+    if (call.route?.connectorId === "installed" && isLazyCatalogControlRoute(call.route)) {
       try {
-        const entries = catalogEntries(await this.authorizedTools(context));
-        if (call.route.toolName === CATALOG_SEARCH) {
-          yield { type: "result", data: { tools: searchCatalog(entries, call.args) } };
-          return;
-        }
-        if (call.route.toolName === CATALOG_LOAD) {
-          const entry = loadCatalogEntry(entries, call.args);
-          yield {
-            type: "result",
-            data: {
-              id: call.args.id,
-              name: entry.tool.name,
-              description: entry.tool.description,
-              inputSchema: entry.tool.inputSchema,
-              readOnly: entry.tool.readOnly === true,
-            },
-          };
-          return;
-        }
-        const resolved = resolveCatalogCall(call, entries);
-        yield* this.execute(resolved.call, context);
+        yield* executeLazyCatalogControl(
+          call,
+          catalogEntries(await this.authorizedTools(context)),
+          (resolved) => this.execute(resolved, context),
+        );
       } catch (error) {
         yield { type: "error", message: sanitizeConnectorError(error) };
       }

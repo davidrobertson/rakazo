@@ -8,7 +8,6 @@ import type {
   ComputerRef,
   ConnectorCall,
   ConnectorProvider,
-  ConnectorRoute,
   JobPublisher,
   ManagedConnectorProvider,
   MemoryStore,
@@ -137,6 +136,7 @@ import {
 } from "./computer-support.js";
 import { observationToolResult, parseComputerActions } from "./computer-tools.js";
 import { checkpointAndRecordComputerWorkspace } from "./computer-workspace.js";
+import { sanitizeConnectorError } from "./connector-safety.js";
 import { resolveDeploymentModel } from "./deployment-model.js";
 import { handoffToGroupBot, loadGroupContext } from "./group-handoff.js";
 import {
@@ -1163,7 +1163,6 @@ export function createRunExecutor(deps: ExecutorDeps) {
           name: string,
           args: Record<string, unknown>,
           executionId: string,
-          runtimeRoute?: ConnectorRoute,
         ) => {
           if (handedOff) {
             return { error: "This stage was handed off. End the turn without more tool calls." };
@@ -1175,7 +1174,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             tool: name,
             args,
             executionId,
-            route: runtimeRoute ?? connectorRoutes.get(name),
+            route: connectorRoutes.get(name),
           };
           const approvedReplay = approvedCatalogReplay(
             approvedEffectReplays,
@@ -1203,7 +1202,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 connectorReadOnly = resolved.tool.readOnly === true;
               }
             } catch (error) {
-              return { error: error instanceof Error ? error.message : String(error) };
+              return { error: sanitizeConnectorError(error) };
             }
           }
           // Approval applies to the exact persisted request, never to a payload the model
@@ -1215,6 +1214,8 @@ export function createRunExecutor(deps: ExecutorDeps) {
               error: `Approved request ${nextApprovedTool} must be replayed before ${name}.`,
             };
           }
+          // Drain FIFO; for catalog wrappers keep resolveCall's parsed args so Zod
+          // stripping/coercion still matches the first-approval effect key and execute payload.
           const approvedRequest = approvedEffectReplays.take(name);
           if (approvedRequest) {
             args = approvedReplayArgs(approvedRequest, args, CATALOG_APPROVAL_TOOL);

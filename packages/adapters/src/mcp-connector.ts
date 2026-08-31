@@ -10,14 +10,12 @@ import type { McpServer, PrismaClient } from "@rakazo/db";
 import { sanitizeConnectorError } from "./connector-safety.js";
 import {
   CATALOG_EXECUTE,
-  CATALOG_LOAD,
-  CATALOG_SEARCH,
   catalogEntries,
   DIRECT_TOOL_LIMIT,
+  executeLazyCatalogControl,
+  isLazyCatalogControlRoute,
   lazyCatalogTools,
-  loadCatalogEntry,
   resolveCatalogCall,
-  searchCatalog,
 } from "./lazy-tool-catalog.js";
 import type { McpOAuthBroker, OAuthMaterial } from "./mcp-oauth.js";
 import { McpSession } from "./mcp-transport.js";
@@ -91,13 +89,14 @@ export class McpConnector implements ConnectorProvider {
 
   async discoverTools(context: AdapterContext): Promise<ConnectorTool[]> {
     const tools = await this.authorizedTools(context);
-    return tools.length > DIRECT_TOOL_LIMIT ? lazyCatalogTools("mcp", "mcp") : tools;
+    return tools.length > DIRECT_TOOL_LIMIT ? lazyCatalogTools("mcp", "mcp", "MCP") : tools;
   }
 
   async resolveCall(
     call: ConnectorCall,
     context: AdapterContext,
   ): Promise<{ call: ConnectorCall; tool: ConnectorTool } | undefined> {
+    // Wrappers have no resourceId; real tools always do.
     if (call.route?.resourceId || call.route?.toolName !== CATALOG_EXECUTE) return undefined;
     return resolveCatalogCall(call, catalogEntries(await this.authorizedTools(context)));
   }
@@ -154,34 +153,13 @@ export class McpConnector implements ConnectorProvider {
       yield { type: "error", message: `MCP route required for ${call.tool}` };
       return;
     }
-    if (
-      !call.route.resourceId &&
-      (call.route.toolName === CATALOG_SEARCH ||
-        call.route.toolName === CATALOG_LOAD ||
-        call.route.toolName === CATALOG_EXECUTE)
-    ) {
+    if (isLazyCatalogControlRoute(call.route)) {
       try {
-        const entries = catalogEntries(await this.authorizedTools(context));
-        if (call.route.toolName === CATALOG_SEARCH) {
-          yield { type: "result", data: { tools: searchCatalog(entries, call.args) } };
-          return;
-        }
-        if (call.route.toolName === CATALOG_LOAD) {
-          const entry = loadCatalogEntry(entries, call.args);
-          yield {
-            type: "result",
-            data: {
-              id: call.args.id,
-              name: entry.tool.name,
-              description: entry.tool.description,
-              inputSchema: entry.tool.inputSchema,
-              readOnly: entry.tool.readOnly === true,
-            },
-          };
-          return;
-        }
-        const resolved = resolveCatalogCall(call, entries);
-        yield* this.execute(resolved.call, context);
+        yield* executeLazyCatalogControl(
+          call,
+          catalogEntries(await this.authorizedTools(context)),
+          (resolved) => this.execute(resolved, context),
+        );
       } catch (error) {
         yield { type: "error", message: sanitizeConnectorError(error) };
       }
