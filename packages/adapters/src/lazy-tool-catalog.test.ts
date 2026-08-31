@@ -1,9 +1,10 @@
 import type { ConnectorTool } from "@rakazo/adapter-kit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   catalogEntries,
   DIRECT_TOOL_LIMIT,
   disambiguateInstalledToolNames,
+  executeLazyCatalogControl,
   lazyCatalogTools,
   loadCatalogEntry,
   resolveCatalogCall,
@@ -90,7 +91,7 @@ describe("lazy tool catalog", () => {
     expect(searchCatalog(entries, { query: "verbose" })[0]?.description).toHaveLength(500);
   });
 
-  it("passes through args when JSON Schema is unsupported", () => {
+  it("does not execute args when JSON Schema is unsupported", async () => {
     const entries = catalogEntries([
       {
         name: "exotic",
@@ -105,18 +106,26 @@ describe("lazy tool catalog", () => {
       },
     ]);
 
-    const resolved = resolveCatalogCall(
-      {
-        tool: "wrapper",
-        args: { id: "src:exotic", arguments: { payload: "raw-bytes", extra: true } },
-        executionId: "exec",
-        route: { connectorId: "test", toolName: "__catalog_execute" },
-      },
-      entries,
-    );
+    const executeResolved = vi.fn(async function* () {
+      yield { type: "result" as const, data: "executed" };
+    });
+    const execute = async () => {
+      for await (const _event of executeLazyCatalogControl(
+        {
+          tool: "wrapper",
+          args: { id: "src:exotic", arguments: { payload: "raw-bytes", extra: true } },
+          executionId: "exec",
+          route: { connectorId: "test", toolName: "__catalog_execute" },
+        },
+        entries,
+        executeResolved,
+      )) {
+        // Consume the catalog execution path.
+      }
+    };
 
-    expect(resolved.call.args).toEqual({ payload: "raw-bytes", extra: true });
-    expect(resolved.call.tool).toBe("exotic");
+    await expect(execute()).rejects.toThrow();
+    expect(executeResolved).not.toHaveBeenCalled();
   });
 
   it("still rejects non-object args and unknown ids", () => {

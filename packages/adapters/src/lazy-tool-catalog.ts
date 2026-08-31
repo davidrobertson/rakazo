@@ -152,26 +152,17 @@ export function resolveCatalogCall(
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new Error("Tool arguments must be an object");
   }
-  let parsedArgs = args as Record<string, unknown>;
-  try {
-    const schema = z.fromJSONSchema(entry.tool.inputSchema as never);
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      throw new Error(`Tool arguments are invalid: ${z.prettifyError(parsed.error)}`);
-    }
-    parsedArgs = parsed.data as Record<string, unknown>;
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Tool arguments are invalid:")) {
-      throw error;
-    }
-    // Match the direct ≤20 path: unsupported JSON Schema still executes after the object check.
+  const schema = z.fromJSONSchema(entry.tool.inputSchema as never);
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    throw new Error(`Tool arguments are invalid: ${z.prettifyError(parsed.error)}`);
   }
   return {
     tool: entry.tool,
     call: {
       ...call,
       tool: entry.tool.name,
-      args: parsedArgs,
+      args: parsed.data as Record<string, unknown>,
       route: entry.tool.route,
     },
   };
