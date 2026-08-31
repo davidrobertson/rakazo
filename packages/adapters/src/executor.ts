@@ -87,6 +87,7 @@ import { buildApprovalAskBlock } from "./approval-ask.js";
 import {
   approvalPausedToolResult,
   approvedCatalogReplay,
+  approvedReplayArgs,
   claimApprovedEffect,
   claimIntendedEffect,
   completeExternalEffect,
@@ -1216,14 +1217,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           }
           const approvedRequest = approvedEffectReplays.take(name);
           if (approvedRequest) {
-            const replayArgs = approvedRequest.arguments;
-            args =
-              typeof approvedRequest[CATALOG_APPROVAL_TOOL] === "string" &&
-              replayArgs &&
-              typeof replayArgs === "object" &&
-              !Array.isArray(replayArgs)
-                ? (replayArgs as Record<string, unknown>)
-                : approvedRequest;
+            args = approvedReplayArgs(approvedRequest, args, CATALOG_APPROVAL_TOOL);
           }
           const viaConnector = !BUILTIN_AGENT_TOOL_NAMES.has(name);
           const requiresApprovalByDefault = toolRequiresApproval(name, viaConnector);

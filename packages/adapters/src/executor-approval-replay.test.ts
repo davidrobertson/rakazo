@@ -1,6 +1,11 @@
 import type { ConnectorTool } from "@rakazo/adapter-kit";
+import { approvalEffectKey } from "@rakazo/core/node/approval-effect-key";
 import { describe, expect, it } from "vitest";
-import { approvedCatalogReplay, createApprovedEffectReplayQueue } from "./approval-effect.js";
+import {
+  approvedCatalogReplay,
+  approvedReplayArgs,
+  createApprovedEffectReplayQueue,
+} from "./approval-effect.js";
 import { APPROVED_EFFECT_REPLAY_ORDER, buildApprovalContinuation } from "./executor.js";
 import { catalogEntries, resolveCatalogCall } from "./lazy-tool-catalog.js";
 
@@ -92,5 +97,44 @@ describe("executor approval replay", () => {
 
     expect(resolved.call.route?.resourceId).toBe("install-A");
     expect(resolved.call.args).toEqual({ target: "approved" });
+  });
+
+  it("preserves authoritative schema normalization during approved catalog replay", () => {
+    const marker = "__rakazoCatalogTool";
+    const approvedRequest = {
+      id: "install-A:create_item",
+      arguments: {},
+      [marker]: "installed_execute_tool",
+    };
+    const queue = createApprovedEffectReplayQueue([
+      { kind: "create_item", request: approvedRequest },
+    ]);
+    const replay = approvedCatalogReplay(queue, "installed_execute_tool", marker);
+    const tool: ConnectorTool = {
+      name: "create_item",
+      description: "Create one item",
+      inputSchema: {
+        type: "object",
+        properties: { count: { type: "integer", default: 3 } },
+        additionalProperties: false,
+      },
+      route: { connectorId: "installed", resourceId: "install-A", toolName: "create_item" },
+    };
+    const resolved = resolveCatalogCall(
+      {
+        tool: "installed_execute_tool",
+        args: replay.args!,
+        executionId: "approved",
+        route: { connectorId: "installed", toolName: "__catalog_execute" },
+      },
+      catalogEntries([tool]),
+    );
+    const replayed = approvedReplayArgs(queue.take(tool.name)!, resolved.call.args, marker);
+
+    expect(replayed).toEqual({ count: 3 });
+    expect(approvalEffectKey("run", tool.name, replayed)).toBe(
+      approvalEffectKey("run", tool.name, resolved.call.args),
+    );
+    expect(queue.assertDrained).not.toThrow();
   });
 });

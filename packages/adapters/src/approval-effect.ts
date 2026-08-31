@@ -63,6 +63,14 @@ export function approvedCatalogReplay(
   return { args };
 }
 
+export function approvedReplayArgs(
+  approvedRequest: Record<string, unknown>,
+  resolvedArgs: Record<string, unknown>,
+  marker: string,
+): Record<string, unknown> {
+  return typeof approvedRequest[marker] === "string" ? resolvedArgs : approvedRequest;
+}
+
 export function approvalPausedToolResult(): ApprovalPausedToolResult {
   return {
     kind: "agent_tool_result",
