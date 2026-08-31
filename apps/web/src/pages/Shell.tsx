@@ -147,6 +147,7 @@ import { providerLabel } from "../lib/messaging";
 import { isFileDrag, revokePendingAttachmentPreviews } from "../lib/pending-attachments";
 import { markAfterPaint, markOnce } from "../lib/performance";
 import { clearSpaceSelection, rpc, selectedSpaceId, selectSpace } from "../lib/rpc";
+import { readSeenRunErrorIds, rememberSeenRunErrorId } from "../lib/run-error-storage";
 import {
   activeThreadRuns,
   clearActiveThreadRuns,
@@ -396,9 +397,8 @@ export function ShellPage() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [dictating, setDictating] = useState(false);
   const [dictationError, setDictationError] = useState<string | null>(null);
-  const [dismissedRunErrorIds, setDismissedRunErrorIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [dismissedRunErrorIds, setDismissedRunErrorIds] =
+    useState<ReadonlySet<string>>(readSeenRunErrorIds);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [draggedBotId, setDraggedBotId] = useState<string | null>(null);
@@ -1613,6 +1613,11 @@ export function ShellPage() {
   const transcriptRunning = workingRuns.length > 0;
   const composerRunning = currentRuns.some((run) => isActive(run.status));
   const runError = threadRunError(activeSnapshot, dismissedRunErrorIds);
+  const displayedRunError = !sendError && !dictationError ? runError : null;
+  useEffect(() => {
+    const failedRunId = displayedRunError ? activeSnapshot?.run?.id : null;
+    if (failedRunId) rememberSeenRunErrorId(failedRunId);
+  }, [activeSnapshot?.run?.id, displayedRunError]);
   const transcriptMessages = useMemo(
     () => userVisibleMessages(activeSnapshot?.messages ?? [], { includePeerReceipts: true }),
     [activeSnapshot?.messages],
@@ -2273,10 +2278,13 @@ export function ShellPage() {
   function dismissComposerError() {
     // The strip shows one message at a time, so only dismiss the run failure when it is the
     // one on screen; otherwise a live run would be silenced before it has even failed.
-    const failedRunId = !sendError && !dictationError && runError ? activeSnapshot?.run?.id : null;
+    const failedRunId = displayedRunError ? activeSnapshot?.run?.id : null;
     setSendError(null);
     setDictationError(null);
-    if (failedRunId) setDismissedRunErrorIds((current) => new Set(current).add(failedRunId));
+    if (failedRunId) {
+      rememberSeenRunErrorId(failedRunId);
+      setDismissedRunErrorIds((current) => new Set(current).add(failedRunId));
+    }
   }
 
   const embeddedScreenUrl = embeddableScreenUrl(screenUrl);
@@ -2938,7 +2946,7 @@ export function ShellPage() {
           attachmentNotice={attachmentNotice}
           sendError={sendError}
           dictationError={dictationError}
-          runError={runError}
+          runError={displayedRunError}
           onDismissError={dismissComposerError}
           sending={sending}
           fileInputRef={fileInputRef}
