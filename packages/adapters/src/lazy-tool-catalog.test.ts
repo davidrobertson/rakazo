@@ -1,6 +1,7 @@
 import type { ConnectorTool } from "@rakazo/adapter-kit";
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertConnectorToolArgs,
   catalogEntries,
   DIRECT_TOOL_LIMIT,
   disambiguateInstalledToolNames,
@@ -152,6 +153,18 @@ describe("lazy tool catalog", () => {
         entries,
       ),
     ).toThrow("must be an object");
+  });
+
+  it("rejects persisted bound args that no longer match the live schema", () => {
+    const schema = {
+      type: "object",
+      properties: { value: { type: "string" } },
+      required: ["value"],
+      additionalProperties: false,
+    };
+    expect(() => assertConnectorToolArgs(schema, { value: "ok" })).not.toThrow();
+    expect(() => assertConnectorToolArgs(schema, { value: 1 })).toThrow(/invalid/i);
+    expect(() => assertConnectorToolArgs(schema, {})).toThrow(/invalid/i);
   });
 
   it("uniquifies installed tool names across installs", () => {

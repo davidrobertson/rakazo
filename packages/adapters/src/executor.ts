@@ -158,7 +158,7 @@ import {
   selectCompactedHistory,
   shouldEnqueueCompaction,
 } from "./history-compaction.js";
-import { CATALOG_EXECUTE } from "./lazy-tool-catalog.js";
+import { assertConnectorToolArgs, CATALOG_EXECUTE } from "./lazy-tool-catalog.js";
 import {
   buildMcpCredentialBlob,
   needsOAuthProbe,
@@ -1207,6 +1207,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           if (approvedReplay.error) return { error: approvedReplay.error };
           if (approvedReplay.args) connectorCall.args = approvedReplay.args;
           let catalogRemapped = false;
+          let resolvedToolSchema: Record<string, unknown> | undefined;
           let effectRequest: unknown = args;
           let connectorReadOnly = readOnlyConnectorTools.has(name);
           if (connectorCall.route && deps.connector?.resolveCall) {
@@ -1219,6 +1220,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 name = resolved.tool.name;
                 args = resolved.call.args;
                 catalogRemapped = true;
+                resolvedToolSchema = resolved.tool.inputSchema;
                 effectRequest = catalogApprovalRequest(
                   connectorCall.tool,
                   connectorCall.args,
@@ -1294,6 +1296,19 @@ export function createRunExecutor(deps: ExecutorDeps) {
             // Catalog wrappers keep resolveCall's parsed args so Zod stripping/coercion
             // still matches the first-approval effect key and execute payload.
             args = approvedReplayArgs(approvedRequest, args, CATALOG_APPROVAL_TOOL);
+            // Bound direct approvals resume with persisted args that skipped the catalog
+            // parse above — reject before execute if they no longer match the live schema.
+            if (
+              catalogRemapped &&
+              resolvedToolSchema &&
+              boundDirectApprovalDetails(approvedRequest, CATALOG_APPROVAL_TOOL)
+            ) {
+              try {
+                assertConnectorToolArgs(resolvedToolSchema, args);
+              } catch (error) {
+                return { error: sanitizeConnectorError(error) };
+              }
+            }
           }
           const viaConnector = !BUILTIN_AGENT_TOOL_NAMES.has(name);
           const requiresApprovalByDefault = toolRequiresApproval(name, viaConnector);

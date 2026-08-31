@@ -152,20 +152,35 @@ export function resolveCatalogCall(
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new Error("Tool arguments must be an object");
   }
-  const schema = z.fromJSONSchema(entry.tool.inputSchema as never);
-  const parsed = schema.safeParse(args);
-  if (!parsed.success) {
-    throw new Error(`Tool arguments are invalid: ${z.prettifyError(parsed.error)}`);
-  }
+  const parsed = parseConnectorToolArgs(entry.tool.inputSchema, args);
   return {
     tool: entry.tool,
     call: {
       ...call,
       tool: entry.tool.name,
-      args: parsed.data as Record<string, unknown>,
+      args: parsed,
       route: entry.tool.route,
     },
   };
+}
+
+export function parseConnectorToolArgs(
+  inputSchema: Record<string, unknown>,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const schema = z.fromJSONSchema(inputSchema as never);
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    throw new Error(`Tool arguments are invalid: ${z.prettifyError(parsed.error)}`);
+  }
+  return parsed.data as Record<string, unknown>;
+}
+
+export function assertConnectorToolArgs(
+  inputSchema: Record<string, unknown>,
+  args: Record<string, unknown>,
+): void {
+  parseConnectorToolArgs(inputSchema, args);
 }
 
 export async function* executeLazyCatalogControl(
