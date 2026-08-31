@@ -33,7 +33,8 @@ export type CatalogSearchResult =
   | { tools: CatalogSearchHit[] }
   | { index: Array<{ group: string; names: string[] }> }
   | { groups: Array<{ group: string; count: number }>; hint: string }
-  | { group: string; names: string[]; error?: string };
+  | { group: string; names: string[]; error?: string }
+  | { group: string; count: number; hint: string };
 
 export function lazyCatalogTools(
   prefix: string,
@@ -162,10 +163,16 @@ export function searchCatalog(
           error: "Unknown or empty group",
         };
       }
-      return {
-        group: scoped[0]!.group,
-        names: listNames(scoped),
-      };
+      const group = scoped[0]!.group;
+      const names = listNames(scoped);
+      if (!fitsNameIndexBudget([{ group, names }])) {
+        return {
+          group,
+          count: names.length,
+          hint: "Pass query to search within this source.",
+        };
+      }
+      return { group, names };
     }
     const grouped = groupedNames(scoped);
     if (!fitsNameIndexBudget(grouped)) {

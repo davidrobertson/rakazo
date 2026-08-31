@@ -159,6 +159,28 @@ describe("lazy tool catalog", () => {
     });
   });
 
+  it("returns a group count when expanding an over-budget source", () => {
+    const oversized = Array.from({ length: NAME_INDEX_MAX_NAMES + 5 }, (_, index) => ({
+      name: `tool_${index}`,
+      description: "x".repeat(40),
+      inputSchema: { type: "object", properties: { secretShape: { type: "string" } } },
+      route: {
+        connectorId: "test",
+        resourceId: "big",
+        toolName: `tool_${index}`,
+        catalogGroup: "huge",
+      },
+    }));
+    const result = searchCatalog(catalogEntries(oversized), { group: "huge" });
+    expect(result).toEqual({
+      group: "huge",
+      count: NAME_INDEX_MAX_NAMES + 5,
+      hint: "Pass query to search within this source.",
+    });
+    expect(JSON.stringify(result)).not.toContain("secretShape");
+    expect(JSON.stringify(result)).not.toContain("tool_0");
+  });
+
   it("returns groups with counts when the name index exceeds budget", () => {
     const oversized = Array.from({ length: NAME_INDEX_MAX_NAMES + 5 }, (_, index) => ({
       name: `tool_${index}`,
