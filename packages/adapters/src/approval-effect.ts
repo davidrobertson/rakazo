@@ -102,7 +102,8 @@ export function catalogApprovalDetails(
   return { toolName: request[1], args: request[2] as Record<string, unknown> };
 }
 
-/** Reject when a same-named direct approval would be consumed by a catalog-resolved call (or vice versa). */
+/** Reject draining a catalog approval from a non-catalog call. Direct approvals may be
+ * replayed through a catalog wrapper after the catalog grows past the direct-tool limit. */
 export function approvalReplayPathError(
   toolName: string,
   catalogRemapped: boolean,
@@ -111,10 +112,10 @@ export function approvalReplayPathError(
 ): string | undefined {
   if (!approvedRequest) return undefined;
   const approvedIsCatalog = Boolean(catalogApprovalDetails(approvedRequest, marker));
-  if (catalogRemapped === approvedIsCatalog) return undefined;
-  return approvedIsCatalog
-    ? `Approved catalog request ${toolName} must be replayed via its catalog execute tool.`
-    : `Approved direct request ${toolName} must be replayed as a direct tool call.`;
+  if (!catalogRemapped && approvedIsCatalog) {
+    return `Approved catalog request ${toolName} must be replayed via its catalog execute tool.`;
+  }
+  return undefined;
 }
 
 export function approvalPausedToolResult(): ApprovalPausedToolResult {

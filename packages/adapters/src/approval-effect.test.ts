@@ -115,7 +115,7 @@ describe("approved effect replay", () => {
     });
   });
 
-  it("rejects cross-path replay when a direct approval shares a catalog tool name", () => {
+  it("rejects cross-path replay when a catalog approval is invoked as a direct tool", () => {
     const marker = "__rakazoCatalogTool";
     const direct = { text: "approved exactly" };
     const catalog = catalogApprovalRequest(
@@ -124,14 +124,20 @@ describe("approved effect replay", () => {
       marker,
     );
 
-    expect(approvalReplayPathError("notes.write", true, direct, marker)).toMatch(
-      /must be replayed as a direct tool call/,
-    );
     expect(approvalReplayPathError("notes.write", false, catalog, marker)).toMatch(
       /must be replayed via its catalog execute tool/,
     );
+    // Direct approval may be reached via catalog wrapper after the catalog grows.
+    expect(approvalReplayPathError("notes.write", true, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", false, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", true, catalog, marker)).toBeUndefined();
+  });
+
+  it("replays a direct approval through catalog resolve after catalog growth", () => {
+    const marker = "__rakazoCatalogTool";
+    const approved = { text: "approved exactly", mode: "fast" };
+    const catalogResolved = { text: "model reconstructed via catalog", mode: "slow" };
+    expect(approvedReplayArgs(approved, catalogResolved, marker)).toEqual(approved);
   });
 });
 
