@@ -4,12 +4,13 @@ import {
   approvalPausedToolResult,
   approvedCatalogReplay,
   approvedReplayArgs,
+  catalogApprovalDetails,
+  catalogApprovalRequest,
   claimApprovedEffect,
   claimIntendedEffect,
   completeExternalEffect,
   createApprovedEffectReplayQueue,
   isApprovalPausedResult,
-  isCatalogApprovalRequest,
   isToolPauseResult,
   replaceCompletedExternalEffectResult,
   resolveDuplicateEffectGate,
@@ -63,7 +64,7 @@ describe("approved effect replay", () => {
       text: "model reconstructed",
       [marker]: "looks-like-a-wrapper-but-is-an-arg",
     };
-    expect(isCatalogApprovalRequest(approved, marker)).toBe(false);
+    expect(catalogApprovalDetails(approved, marker)).toBeUndefined();
 
     const queue = createApprovedEffectReplayQueue([{ kind: "notes.write", request: approved }]);
     expect(approvedCatalogReplay(queue, "notes.write", marker)).toEqual({});
@@ -73,12 +74,15 @@ describe("approved effect replay", () => {
 
   it("still recognizes the full catalog envelope as a catalog replay", () => {
     const marker = "__rakazoCatalogTool";
-    const approved = {
-      id: "install-A:notes.write",
-      arguments: { text: "approved" },
-      [marker]: "installed_execute_tool",
-    };
-    expect(isCatalogApprovalRequest(approved, marker)).toBe(true);
+    const approved = catalogApprovalRequest(
+      "installed_execute_tool",
+      { id: "install-A:notes.write", arguments: { text: "approved" } },
+      marker,
+    );
+    expect(catalogApprovalDetails(approved, marker)).toEqual({
+      toolName: "installed_execute_tool",
+      args: { id: "install-A:notes.write", arguments: { text: "approved" } },
+    });
     expect(approvedReplayArgs(approved, { text: "approved", mode: "fast" }, marker)).toEqual({
       text: "approved",
       mode: "fast",

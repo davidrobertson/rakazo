@@ -9,8 +9,8 @@ export interface ApprovedEffectReplay {
 
 export interface ApprovedEffectReplayQueue {
   nextToolName(): string | undefined;
-  nextRequest(): Record<string, unknown> | undefined;
-  take(toolName: string): Record<string, unknown> | undefined;
+  nextRequest(): unknown;
+  take(toolName: string): unknown;
   assertDrained(): void;
 }
 
@@ -24,20 +24,13 @@ export function createApprovedEffectReplayQueue(
       return pending[0]?.kind;
     },
     nextRequest() {
-      const request = pending[0]?.request;
-      return request && typeof request === "object" && !Array.isArray(request)
-        ? (request as Record<string, unknown>)
-        : undefined;
+      return pending[0]?.request;
     },
     take(toolName) {
       const next = pending[0];
       if (!next || next.kind !== toolName) return undefined;
       pending.shift();
-      const request = next.request;
-      if (!request || typeof request !== "object" || Array.isArray(request)) {
-        throw new TypeError(`Approved ${toolName} request is not a JSON object`);
-      }
-      return request as Record<string, unknown>;
+      return next.request;
     },
     assertDrained() {
       if (pending.length > 0) {
@@ -47,44 +40,55 @@ export function createApprovedEffectReplayQueue(
   };
 }
 
-export function isCatalogApprovalRequest(
-  request: Record<string, unknown> | undefined,
-  marker: string,
-): boolean {
-  // Require the full lazy catalog envelope so a direct tool argument named like the
-  // internal marker cannot be mistaken for a catalog wrapper approval.
-  return Boolean(
-    request &&
-      typeof request[marker] === "string" &&
-      typeof request.id === "string" &&
-      request.arguments != null &&
-      typeof request.arguments === "object" &&
-      !Array.isArray(request.arguments),
-  );
-}
-
 export function approvedCatalogReplay(
   queue: ApprovedEffectReplayQueue,
   toolName: string,
   marker: string,
 ): { args?: Record<string, unknown>; error?: string } {
-  const pending = queue.nextRequest();
-  if (!isCatalogApprovalRequest(pending, marker)) return {};
-  const approvedTool = pending![marker];
-  if (approvedTool !== toolName) {
-    return { error: `Approved request ${approvedTool} must be replayed before ${toolName}.` };
+  const pending = catalogApprovalDetails(queue.nextRequest(), marker);
+  if (!pending) return {};
+  if (pending.toolName !== toolName) {
+    return { error: `Approved request ${pending.toolName} must be replayed before ${toolName}.` };
   }
-  const args = { ...pending };
-  delete args[marker];
-  return { args };
+  return { args: pending.args };
 }
 
 export function approvedReplayArgs(
-  approvedRequest: Record<string, unknown>,
+  approvedRequest: unknown,
   resolvedArgs: Record<string, unknown>,
   marker: string,
 ): Record<string, unknown> {
-  return isCatalogApprovalRequest(approvedRequest, marker) ? resolvedArgs : approvedRequest;
+  if (catalogApprovalDetails(approvedRequest, marker)) return resolvedArgs;
+  if (!approvedRequest || typeof approvedRequest !== "object" || Array.isArray(approvedRequest)) {
+    throw new TypeError("Approved tool request is not a JSON object");
+  }
+  return approvedRequest as Record<string, unknown>;
+}
+
+export function catalogApprovalRequest(
+  toolName: string,
+  args: Record<string, unknown>,
+  marker: string,
+): unknown[] {
+  return [marker, toolName, args];
+}
+
+export function catalogApprovalDetails(
+  request: unknown,
+  marker: string,
+): { toolName: string; args: Record<string, unknown> } | undefined {
+  if (
+    !Array.isArray(request) ||
+    request.length !== 3 ||
+    request[0] !== marker ||
+    typeof request[1] !== "string" ||
+    !request[2] ||
+    typeof request[2] !== "object" ||
+    Array.isArray(request[2])
+  ) {
+    return undefined;
+  }
+  return { toolName: request[1], args: request[2] as Record<string, unknown> };
 }
 
 export function approvalPausedToolResult(): ApprovalPausedToolResult {

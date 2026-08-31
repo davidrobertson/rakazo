@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   approvedCatalogReplay,
   approvedReplayArgs,
+  catalogApprovalRequest,
   createApprovedEffectReplayQueue,
 } from "./approval-effect.js";
 import { APPROVED_EFFECT_REPLAY_ORDER, buildApprovalContinuation } from "./executor.js";
@@ -26,11 +27,11 @@ describe("executor approval replay", () => {
         route: { connectorId: "installed", resourceId, toolName },
       },
     ]);
-    const request = {
-      id: `${resourceId}:${toolName}`,
-      arguments: {},
-      __rakazoCatalogTool: "installed_execute_tool",
-    };
+    const request = catalogApprovalRequest(
+      "installed_execute_tool",
+      { id: `${resourceId}:${toolName}`, arguments: {} },
+      "__rakazoCatalogTool",
+    );
     const queue = createApprovedEffectReplayQueue([{ kind: toolName, request }]);
 
     expect(tool!.name).toBe(toolName);
@@ -69,11 +70,11 @@ describe("executor approval replay", () => {
       [
         {
           kind: "mcp__demo__send_message",
-          request: {
-            id: "server-1:send_message",
-            arguments: { text: "approved exactly" },
-            __rakazoCatalogTool: "mcp_execute_tool",
-          },
+          request: catalogApprovalRequest(
+            "mcp_execute_tool",
+            { id: "server-1:send_message", arguments: { text: "approved exactly" } },
+            "__rakazoCatalogTool",
+          ),
         },
       ],
       JSON.stringify,
@@ -108,11 +109,11 @@ describe("executor approval replay", () => {
     const effects = [
       {
         kind: "delete_item",
-        request: {
-          id: "install-A:delete_item",
-          arguments: { target: "approved" },
-          __rakazoCatalogTool: "installed_execute_tool",
-        },
+        request: catalogApprovalRequest(
+          "installed_execute_tool",
+          { id: "install-A:delete_item", arguments: { target: "approved" } },
+          "__rakazoCatalogTool",
+        ),
       },
     ];
     const queue = createApprovedEffectReplayQueue(effects);
@@ -148,11 +149,11 @@ describe("executor approval replay", () => {
 
   it("keeps resolveCall parsed args when draining an approved catalog replay", () => {
     const marker = "__rakazoCatalogTool";
-    const approvedRequest = {
-      id: "install-A:create_item",
-      arguments: {},
-      [marker]: "installed_execute_tool",
-    };
+    const approvedRequest = catalogApprovalRequest(
+      "installed_execute_tool",
+      { id: "install-A:create_item", arguments: {} },
+      marker,
+    );
     const queue = createApprovedEffectReplayQueue([
       { kind: "create_item", request: approvedRequest },
     ]);
@@ -180,10 +181,25 @@ describe("executor approval replay", () => {
 
     expect(resolved.call.args).toEqual({ count: 3 });
     expect(replayed).toEqual({ count: 3 });
-    expect(replayed).not.toEqual(approvedRequest.arguments);
+    expect(replayed).not.toEqual({});
     expect(approvalEffectKey("run", tool.name, replayed)).toBe(
       approvalEffectKey("run", tool.name, resolved.call.args),
     );
     expect(queue.assertDrained).not.toThrow();
+  });
+
+  it("preserves direct approved args that use the catalog marker as data", () => {
+    const approvedRequest = {
+      __rakazoCatalogTool: "user-provided-value",
+      target: "approved",
+    };
+
+    expect(
+      approvedReplayArgs(
+        approvedRequest,
+        { __rakazoCatalogTool: "user-provided-value", target: "reconstructed" },
+        "__rakazoCatalogTool",
+      ),
+    ).toEqual(approvedRequest);
   });
 });
