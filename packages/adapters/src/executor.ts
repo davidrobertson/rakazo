@@ -1274,12 +1274,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 resolvedToolSchema = resolved.tool.inputSchema;
                 effectRequest = catalogApprovalRequest(
                   connectorCall.tool,
-                  {
-                    ...connectorCall.args,
-                    ...(resolved.call.route?.resourceRevision !== undefined
-                      ? { resourceRevision: resolved.call.route.resourceRevision }
-                      : {}),
-                  },
+                  connectorCall.args,
                   CATALOG_APPROVAL_TOOL,
                   resolved.tool.route?.resourceId &&
                     resolved.tool.route.connectorId &&

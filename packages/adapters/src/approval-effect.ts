@@ -282,21 +282,17 @@ export function catalogApprovalMatchesLiveRoute(
 ): boolean {
   if (catalog.route) return approvalRoutesMatch(catalog.route, liveRoute);
   // Legacy catalog approvals without a bound route cannot prove revision identity.
+  // If the live tool carries a revision (MCP), fail closed rather than replaying
+  // across an OAuth reauth that the old envelope could not name.
   if (liveRoute?.resourceRevision !== undefined) return false;
   const target = parseCatalogApprovalTarget(catalog.args);
-  if (
-    !liveRoute ||
-    !target ||
-    liveRoute.connectorId !== catalogApprovalConnectorId(catalog.toolName) ||
-    liveRoute.resourceId !== target.resourceId ||
-    liveRoute.toolName !== target.toolName
-  ) {
-    return false;
-  }
-  // Persist revision when available so OAuth reauth (revision bump) cannot replay.
-  // Legacy envelopes without resourceRevision keep matching on connector/resource/tool.
-  if (!Object.hasOwn(catalog.args, "resourceRevision")) return true;
-  return catalog.args.resourceRevision === liveRoute.resourceRevision;
+  return Boolean(
+    liveRoute &&
+      target &&
+      liveRoute.connectorId === catalogApprovalConnectorId(catalog.toolName) &&
+      liveRoute.resourceId === target.resourceId &&
+      liveRoute.toolName === target.toolName,
+  );
 }
 
 export function catalogApprovalInnerArgs(catalog: {
