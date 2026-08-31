@@ -208,6 +208,17 @@ export function uniquifyInstalledToolName(installId: string, toolName: string): 
   return `installed__${installId}__${toolName}`;
 }
 
+/** Prefix only when the same exposed name appears on more than one install. */
+export function disambiguateInstalledToolNames(tools: ConnectorTool[]): ConnectorTool[] {
+  const counts = new Map<string, number>();
+  for (const tool of tools) counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1);
+  return tools.map((tool) => {
+    const resourceId = tool.route?.resourceId;
+    if (!resourceId || (counts.get(tool.name) ?? 0) < 2) return tool;
+    return { ...tool, name: uniquifyInstalledToolName(resourceId, tool.name) };
+  });
+}
+
 function catalogEntryId(tool: ConnectorTool): string {
   const route = tool.route;
   if (!route?.resourceId) return tool.name;

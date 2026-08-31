@@ -325,11 +325,8 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       signal: new AbortController().signal,
     };
     const tools = await provider.discoverTools(context);
-    expect(
-      tools.filter(
-        (tool) => tool.route?.toolName === "notes.write" && tool.name.startsWith("installed__"),
-      ),
-    ).toHaveLength(2);
+    // Two installs expose the same MCP tool name, so approval kinds are disambiguated.
+    expect(tools.filter((tool) => tool.route?.toolName === "notes.write")).toHaveLength(2);
     expect(new Set(tools.map((tool) => tool.name)).size).toBe(tools.length);
     for (const install of [treg, custom]) {
       const tool = tools.find((candidate) => candidate.route?.resourceId === install.id);
@@ -401,7 +398,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     const tools = await provider.discoverTools(adapterContext);
     const tool = tools.find((candidate) => candidate.route?.toolName === "getContact");
     expect(tool).toMatchObject({
-      name: `installed__${install.id}__getContact`,
+      name: "getContact",
       readOnly: true,
     });
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   catalogEntries,
   DIRECT_TOOL_LIMIT,
+  disambiguateInstalledToolNames,
   lazyCatalogTools,
   loadCatalogEntry,
   resolveCatalogCall,
@@ -151,5 +152,33 @@ describe("lazy tool catalog", () => {
     expect(uniquifyInstalledToolName("install-B", "delete_item")).toBe(
       "installed__install-B__delete_item",
     );
+  });
+
+  it("only prefixes installed names when they collide across installs", () => {
+    const tools = disambiguateInstalledToolNames([
+      {
+        name: "unique_op",
+        description: "Only on A",
+        inputSchema: { type: "object" },
+        route: { connectorId: "installed", resourceId: "install-A", toolName: "unique_op" },
+      },
+      {
+        name: "delete_item",
+        description: "On A",
+        inputSchema: { type: "object" },
+        route: { connectorId: "installed", resourceId: "install-A", toolName: "delete_item" },
+      },
+      {
+        name: "delete_item",
+        description: "On B",
+        inputSchema: { type: "object" },
+        route: { connectorId: "installed", resourceId: "install-B", toolName: "delete_item" },
+      },
+    ]);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "unique_op",
+      "installed__install-A__delete_item",
+      "installed__install-B__delete_item",
+    ]);
   });
 });

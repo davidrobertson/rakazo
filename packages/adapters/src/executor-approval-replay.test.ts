@@ -107,11 +107,11 @@ describe("executor approval replay", () => {
       [marker]: "installed_execute_tool",
     };
     const queue = createApprovedEffectReplayQueue([
-      { kind: "installed__install-A__create_item", request: approvedRequest },
+      { kind: "create_item", request: approvedRequest },
     ]);
     const replay = approvedCatalogReplay(queue, "installed_execute_tool", marker);
     const tool: ConnectorTool = {
-      name: "installed__install-A__create_item",
+      name: "create_item",
       description: "Create one item",
       inputSchema: {
         type: "object",

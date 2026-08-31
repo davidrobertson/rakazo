@@ -72,7 +72,7 @@ describe("OpenAPI connector import", () => {
           tools: [
             {
               id: "api-1:operation_20",
-              name: "installed__api-1__operation_20",
+              name: "operation_20",
               description: "Read the final contact",
               readOnly: true,
             },
@@ -91,9 +91,9 @@ describe("OpenAPI connector import", () => {
         context,
       ),
     ).resolves.toMatchObject({
-      tool: { name: "installed__api-1__operation_20", readOnly: true },
+      tool: { name: "operation_20", readOnly: true },
       call: {
-        tool: "installed__api-1__operation_20",
+        tool: "operation_20",
         args: { limit: 5 },
         route: { connectorId: "installed", resourceId: "api-1", toolName: "operation_20" },
       },
@@ -150,7 +150,7 @@ describe("OpenAPI connector import", () => {
       [marker]: execute.name,
     };
     const queue = createApprovedEffectReplayQueue([
-      { kind: "installed__api-approved__operation_20", request: approvedRequest },
+      { kind: "operation_20", request: approvedRequest },
     ]);
     const replay = approvedCatalogReplay(queue, execute.name, marker);
     const resolved = await provider.resolveCall(
@@ -169,7 +169,7 @@ describe("OpenAPI connector import", () => {
       events.push(event);
     }
 
-    expect(resolved!.tool.name).toBe("installed__api-approved__operation_20");
+    expect(resolved!.tool.name).toBe("operation_20");
     expect(args).toEqual({ count: 3 });
     expect(approvalEffectKey("run", resolved!.tool.name, args)).toBe(
       approvalEffectKey("run", resolved!.tool.name, resolved!.call.args),
@@ -293,7 +293,8 @@ describe("OpenAPI connector import", () => {
       {} as never,
     ).discoverTools(context);
     expect(direct).toHaveLength(20);
-    expect(direct[0]?.name).toMatch(/^installed__api-threshold__/);
+    expect(direct[0]?.name).toBe("operation_0");
+    expect(direct.every((tool) => !tool.name.startsWith("installed__"))).toBe(true);
 
     const lazyPrisma = {
       capabilityInstall: {

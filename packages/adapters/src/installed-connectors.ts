@@ -16,11 +16,11 @@ import {
   CATALOG_EXECUTE,
   catalogEntries,
   DIRECT_TOOL_LIMIT,
+  disambiguateInstalledToolNames,
   executeLazyCatalogControl,
   isLazyCatalogControlRoute,
   lazyCatalogTools,
   resolveCatalogCall,
-  uniquifyInstalledToolName,
 } from "./lazy-tool-catalog.js";
 import {
   assertSafeRemoteUrl,
@@ -161,7 +161,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
       );
       tools.push(...groups.flat());
     }
-    return tools;
+    return disambiguateInstalledToolNames(tools);
   }
 
   private async discoverInstall(
@@ -181,7 +181,6 @@ export class InstalledConnectorProvider implements ConnectorProvider {
         });
         return remote.map((tool) => ({
           ...tool,
-          name: uniquifyInstalledToolName(install.id, tool.name),
           route: {
             connectorId: "installed",
             resourceId: install.id,
@@ -192,7 +191,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
       if (install.kind === "api") {
         const config = ApiConfigSchema.parse(install.config);
         return config.operations.map((operation) => ({
-          name: uniquifyInstalledToolName(install.id, operation.name ?? operation.id),
+          name: operation.name ?? operation.id,
           description: operation.description ?? `${operation.method} ${operation.path}`,
           inputSchema: operation.inputSchema,
           readOnly: operation.readOnly,
