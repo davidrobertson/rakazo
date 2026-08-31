@@ -60,18 +60,16 @@ test("shows peer chips in transcript and opens view-only peer chat", async ({ pa
   // User bubble still contains the phrase; peer body must not appear outside the chip.
   await expect(chip).not.toContainText("peer-exchange-alpha");
   await expect(transcript.getByText("peer-exchange-alpha")).toHaveCount(1);
-  const assertChipCentered = async () => {
+  const assertChipLeftAligned = async () => {
     const transcriptBox = await transcript.boundingBox();
     const chipBox = await chip.boundingBox();
     expect(transcriptBox).not.toBeNull();
     expect(chipBox).not.toBeNull();
-    const transcriptCenter = transcriptBox!.x + transcriptBox!.width / 2;
-    const chipCenter = chipBox!.x + chipBox!.width / 2;
-    // Status-row chips sit near horizontal center (not left-rail like messages).
-    expect(Math.abs(chipCenter - transcriptCenter)).toBeLessThan(transcriptBox!.width * 0.2);
+    expect(chipBox!.x).toBeLessThan(transcriptBox!.x + transcriptBox!.width / 3);
+    expect(chipBox!.width).toBeLessThan(transcriptBox!.width / 2);
   };
 
-  await assertChipCentered();
+  await assertChipLeftAligned();
   await expect(composer).toBeVisible();
   await captureScreenshot(page, testInfo, "peer-chip-desktop");
 
@@ -79,7 +77,7 @@ test("shows peer chips in transcript and opens view-only peer chat", async ({ pa
   await chip.scrollIntoViewIfNeeded();
   await expect(chip).toBeVisible();
   await expect(composer).toBeVisible();
-  await assertChipCentered();
+  await assertChipLeftAligned();
   await captureScreenshot(page, testInfo, "peer-chip-mobile");
 
   await chip.focus();
@@ -94,5 +92,16 @@ test("shows peer chips in transcript and opens view-only peer chat", async ({ pa
   });
   await expect(view.getByRole("textbox")).toHaveCount(0);
   await expect(view.getByText("Loading")).toHaveCount(0);
+  const peerTranscript = view.getByTestId("peer-conversation-transcript");
+  await peerTranscript.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect
+    .poll(() =>
+      peerTranscript.evaluate(
+        (element) => element.scrollTop + element.clientHeight >= element.scrollHeight - 1,
+      ),
+    )
+    .toBe(true);
   await captureScreenshot(page, testInfo, "peer-view-only");
 });

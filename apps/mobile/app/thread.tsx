@@ -1959,13 +1959,13 @@ const MessageBubble = memo(function MessageBubble({
           width: "100%",
           paddingVertical: 4,
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "flex-start",
           flexDirection: "row",
           gap: 6,
         }}
       >
         <BotAvatar color={peerColor} identity={peerBotId} size={16} />
-        <Text style={{ color: "#85858A", fontSize: 13.5 }}>{label}</Text>
+        <Text style={{ color: "#85858A", fontSize: 13.5, flexShrink: 1 }}>{label}</Text>
       </View>
     );
   }
