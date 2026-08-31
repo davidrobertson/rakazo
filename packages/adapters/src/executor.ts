@@ -1276,6 +1276,16 @@ export function createRunExecutor(deps: ExecutorDeps) {
                   connectorCall.tool,
                   connectorCall.args,
                   CATALOG_APPROVAL_TOOL,
+                  resolved.tool.route?.resourceId &&
+                    resolved.tool.route.connectorId &&
+                    resolved.tool.route.toolName
+                    ? {
+                        connectorId: resolved.tool.route.connectorId,
+                        resourceId: resolved.tool.route.resourceId,
+                        resourceRevision: resolved.tool.route.resourceRevision,
+                        toolName: resolved.tool.route.toolName,
+                      }
+                    : undefined,
                 );
                 connectorCall = resolved.call;
                 connectorReadOnly = resolved.tool.readOnly === true;

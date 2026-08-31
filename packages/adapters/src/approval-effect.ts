@@ -86,17 +86,18 @@ export function catalogApprovalRequest(
   toolName: string,
   args: Record<string, unknown>,
   marker: string,
+  route?: BoundApprovalRoute,
 ): unknown[] {
-  return [marker, toolName, args];
+  return route ? [marker, toolName, args, route] : [marker, toolName, args];
 }
 
 export function catalogApprovalDetails(
   request: unknown,
   marker: string,
-): { toolName: string; args: Record<string, unknown> } | undefined {
+): { toolName: string; args: Record<string, unknown>; route?: BoundApprovalRoute } | undefined {
   if (
     !Array.isArray(request) ||
-    request.length !== 3 ||
+    (request.length !== 3 && request.length !== 4) ||
     request[0] !== marker ||
     typeof request[1] !== "string" ||
     !request[1].endsWith("_execute_tool") ||
@@ -106,7 +107,28 @@ export function catalogApprovalDetails(
   ) {
     return undefined;
   }
-  return { toolName: request[1], args: request[2] as Record<string, unknown> };
+  if (request.length === 3) {
+    return { toolName: request[1], args: request[2] as Record<string, unknown> };
+  }
+  const route = request[3];
+  if (
+    !route ||
+    typeof route !== "object" ||
+    Array.isArray(route) ||
+    typeof (route as BoundApprovalRoute).connectorId !== "string" ||
+    typeof (route as BoundApprovalRoute).resourceId !== "string" ||
+    typeof (route as BoundApprovalRoute).toolName !== "string" ||
+    ((route as BoundApprovalRoute).resourceRevision !== undefined &&
+      typeof (route as BoundApprovalRoute).resourceRevision !== "string" &&
+      typeof (route as BoundApprovalRoute).resourceRevision !== "number")
+  ) {
+    return undefined;
+  }
+  return {
+    toolName: request[1],
+    args: request[2] as Record<string, unknown>,
+    route: route as BoundApprovalRoute,
+  };
 }
 
 export function boundDirectApprovalRequest(
@@ -247,9 +269,12 @@ export function catalogApprovalConnectorId(wrapperToolName: string): string {
 }
 
 export function catalogApprovalMatchesLiveRoute(
-  catalog: { toolName: string; args: Record<string, unknown> },
+  catalog: { toolName: string; args: Record<string, unknown>; route?: BoundApprovalRoute },
   liveRoute: BoundApprovalRoute | undefined,
 ): boolean {
+  if (catalog.route) return approvalRoutesMatch(catalog.route, liveRoute);
+  // Legacy catalog approvals without a bound route cannot prove revision identity.
+  if (liveRoute?.resourceRevision !== undefined) return false;
   const target = parseCatalogApprovalTarget(catalog.args);
   return Boolean(
     liveRoute &&

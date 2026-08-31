@@ -146,6 +146,35 @@ describe("approved effect replay", () => {
     expect(
       approvalReplayPathError("notes.write", false, catalog, marker, matching),
     ).toBeUndefined();
+    expect(
+      approvalReplayPathError("notes.write", false, catalog, marker, {
+        ...matching,
+        resourceRevision: 2,
+      }),
+    ).toMatch(/must be replayed via its catalog execute tool/);
+    const boundCatalog = catalogApprovalRequest(
+      "installed_execute_tool",
+      { id: "install-A:notes.write", arguments: { text: "catalog" } },
+      marker,
+      {
+        connectorId: "installed",
+        resourceId: "install-A",
+        resourceRevision: 1,
+        toolName: "notes.write",
+      },
+    );
+    expect(
+      approvalReplayPathError("notes.write", false, boundCatalog, marker, {
+        ...matching,
+        resourceRevision: 1,
+      }),
+    ).toBeUndefined();
+    expect(
+      approvalReplayPathError("notes.write", false, boundCatalog, marker, {
+        ...matching,
+        resourceRevision: 2,
+      }),
+    ).toMatch(/must be replayed via its catalog execute tool/);
     expect(approvalReplayPathError("notes.write", true, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", false, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", true, catalog, marker)).toBeUndefined();
