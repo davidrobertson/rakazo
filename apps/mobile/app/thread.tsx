@@ -6,6 +6,7 @@ import type {
   MessageBlock,
   Routine,
 } from "@rakazo/contracts";
+import { canReactToThreadMessage } from "@rakazo/contracts";
 import {
   abortableDelay,
   attachmentsForThread,
@@ -21,6 +22,7 @@ import {
   type SlashActionId,
   serializeComposerPrompt,
   truncateSlashDescription,
+  userVisibleMessages,
 } from "@rakazo/core";
 import { Link, useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -194,6 +196,7 @@ function Thread() {
   const loadingOlderContent = useRef(false);
   const expandedHistoryThread = useRef<string | null>(null);
   const historyEpoch = useRef(0);
+  const jumpGeneration = useRef(0);
   const pinnedAroundRef = useRef<{
     botId?: string;
     groupId?: string;
@@ -255,7 +258,10 @@ function Thread() {
     null,
   );
   const visibleMessages = useMemo(
-    () => (snap?.messages ?? []).filter((message) => hasVisibleMessagePresentation(message.blocks)),
+    () =>
+      userVisibleMessages(snap?.messages ?? [], { includePeerReceipts: true }).filter((message) =>
+        hasVisibleMessagePresentation(message.blocks),
+      ),
     [snap?.messages],
   );
   const latestMessageId = visibleMessages.at(-1)?.id ?? null;
@@ -561,6 +567,8 @@ function Thread() {
   async function applyMessageJump(target: { botId?: string; groupId?: string; messageId: string }) {
     const threadTarget = target.groupId ? { groupId: target.groupId } : { botId: target.botId! };
     const epoch = historyEpoch.current;
+    jumpGeneration.current += 1;
+    const jumpId = jumpGeneration.current;
     const [snap, page] = await Promise.all([
       rpc<MobileSnapshot>("threads/get", threadTarget),
       rpc<MobileMessagePage>("threads/messages", {
@@ -568,24 +576,27 @@ function Thread() {
         around: { messageId: target.messageId },
       }),
     ]);
-    // The epoch check drops a jump that raced a conversation clear (or a bot switch): applying
-    // the fetched page would pin deleted messages that every later refresh keeps restoring.
-    if (epoch !== historyEpoch.current) return;
+    // The epoch check drops a jump that raced a conversation clear (or a bot switch); the
+    // generation check drops an older same-thread jump that finished after a newer one.
+    if (epoch !== historyEpoch.current || jumpId !== jumpGeneration.current) return;
     if (target.groupId && activeGroupId.current !== target.groupId) return;
     if (target.botId && activeBotId.current !== target.botId) return;
-    expandedHistoryThread.current = page.threadId;
-    pinnedAroundRef.current = {
-      ...threadTarget,
-      messageId: target.messageId,
-      threadId: page.threadId,
-      messages: [...page.messages],
-      olderCursor: page.olderCursor,
-    };
-    jumpScrollTarget.current = target.messageId;
+    const targetInPage = page.messages.some((message) => message.id === target.messageId);
+    expandedHistoryThread.current = targetInPage ? page.threadId : null;
+    pinnedAroundRef.current = targetInPage
+      ? {
+          ...threadTarget,
+          messageId: target.messageId,
+          threadId: page.threadId,
+          messages: [...page.messages],
+          olderCursor: page.olderCursor,
+        }
+      : null;
+    jumpScrollTarget.current = targetInPage ? target.messageId : null;
     setSnap({
       ...snap,
-      messages: [...page.messages],
-      olderCursor: page.olderCursor,
+      messages: targetInPage ? [...page.messages] : snap.messages,
+      olderCursor: targetInPage ? page.olderCursor : snap.olderCursor,
     });
   }
 
@@ -598,6 +609,7 @@ function Thread() {
       const page = await rpc<MobileMessagePage>("threads/messages", {
         ...(groupId ? { groupId } : { botId: botId! }),
         before: snap.olderCursor,
+        includePeerReceipts: true,
       });
       if (epoch !== historyEpoch.current) {
         loadingOlderContent.current = false;
@@ -712,6 +724,7 @@ function Thread() {
                 event.type === "agent.tool.called" ||
                 event.type === "thread.message.created" ||
                 event.type === "thread.message.updated" ||
+                event.type === "thread.message.reaction" ||
                 event.type === "thread.subagent" ||
                 event.type === "thread.cleared" ||
                 event.type === "run.waiting_input" ||
@@ -1071,6 +1084,22 @@ function Thread() {
     );
   }
 
+  async function reactToMessage(message: MobileMessage) {
+    const targetBotId = botId;
+    const targetGroupId = groupId;
+    if (!targetBotId && !targetGroupId) return;
+    try {
+      await rpc("threads/react", {
+        ...(targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! }),
+        messageId: message.id,
+        thumbsUp: !message.thumbsUp,
+      });
+    } catch (err) {
+      if (!isCurrentTarget(targetBotId, targetGroupId)) return;
+      setError(err instanceof Error ? err.message : "Could not update reaction");
+    }
+  }
+
   function renderMessageRow(message: MobileMessage, options?: { enableJump?: boolean }) {
     const ownerId = toolOwnerId(message, inGroup);
     const activityBotId =
@@ -1133,16 +1162,30 @@ function Thread() {
             flexShrink: 1,
           }}
         >
-          <Pressable
-            accessibilityLabel="Reply"
-            onPress={() => setReplyTarget(message)}
+          <View
             style={{
               alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
               marginBottom: 4,
             }}
           >
-            <Text style={{ color: "#6C6C70", fontSize: 12 }}>Reply</Text>
-          </Pressable>
+            <Pressable accessibilityLabel="Reply" onPress={() => setReplyTarget(message)}>
+              <Text style={{ color: "#6C6C70", fontSize: 12 }}>Reply</Text>
+            </Pressable>
+            {canReactToThreadMessage(message) ? (
+              <Pressable
+                accessibilityLabel={message.thumbsUp ? "Remove thumbs-up" : "Add thumbs-up"}
+                accessibilityState={{ selected: Boolean(message.thumbsUp) }}
+                onPress={() => void reactToMessage(message)}
+              >
+                <Text style={{ color: message.thumbsUp ? "#E9C46A" : "#6C6C70", fontSize: 13 }}>
+                  👍
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
           <MessageBubble
             botId={botId ?? snap?.members?.[0]?.botId ?? ""}
             groupId={groupId}
@@ -1897,13 +1940,14 @@ const MessageBubble = memo(function MessageBubble({
   if (peerMessage) {
     const sent = peerMessage.kind === "bot_message_sent";
     const peer = sent ? peerMessage.toBotName : peerMessage.fromBotName;
+    // Compact receipt only: peer bodies stay out of the human thread.
+    // Full view-only peer chat is web-first; mobile keeps the chip without expand.
     return (
-      <AgentEventLabel
-        label={sent ? `Messaged ${peer}` : `Message from ${peer}`}
-        detail={peerMessage.text}
-        expanded={peerExpanded}
-        onToggle={() => setPeerExpanded((expanded) => !expanded)}
-      />
+      <View style={{ width: "100%", paddingVertical: 4, alignItems: "center" }}>
+        <Text style={{ color: "#85858A", fontSize: 13.5, textAlign: "center" }}>
+          {sent ? `Messaged ${peer}` : `Message from ${peer}`}
+        </Text>
+      </View>
     );
   }
   const phoneChannel = message.blocks.find(

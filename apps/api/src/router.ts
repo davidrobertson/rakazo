@@ -134,8 +134,9 @@ import {
   UpdaterProxyError,
 } from "./server-update.js";
 import { assertTeachingSendAllowed, createTaughtSkillsService } from "./taught-skills.js";
-import { loadAllMessages, loadMessagePage } from "./thread-message-pages.js";
+import { isPeerRun, loadAllMessages, loadMessagePage } from "./thread-message-pages.js";
 import {
+  reactToThreadMessage,
   resolveThreadTarget,
   sendThreadMessage,
   setThreadUnreadState,
@@ -1017,15 +1018,39 @@ export function createRouter(deps: RouterDeps) {
           input.before,
           THREAD_MESSAGE_PAGE_SIZE,
           input.around,
+          input.includePeerRuns,
+          input.includePeerReceipts,
         );
       }),
       subscribe: authed.threads.subscribe.handler(async function* ({ context, input }) {
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);
+        const peerRunCache = new Map<string, Promise<boolean>>();
         for await (const event of deps.events.follow(
           target.threadId,
           input.cursor,
           context.signal,
         )) {
+          if (await isPeerRun(deps.prisma, event.runId, peerRunCache)) {
+            // Keep terminal peer-run events so clients can clear working state.
+            // Keep compact peer receipts for mobile; drop peer activity/replies.
+            const isTerminal =
+              event.type === "run.completed" ||
+              event.type === "run.failed" ||
+              event.type === "run.cancelled";
+            const blocks = event.payload.blocks;
+            const isReceipt =
+              (event.type === "thread.message.created" ||
+                event.type === "thread.message.updated") &&
+              Array.isArray(blocks) &&
+              blocks.some(
+                (block) =>
+                  !!block &&
+                  typeof block === "object" &&
+                  "kind" in block &&
+                  (block.kind === "bot_message_received" || block.kind === "bot_message_sent"),
+              );
+            if (!isTerminal && !isReceipt) continue;
+          }
           yield event;
         }
       }),
@@ -1035,6 +1060,27 @@ export function createRouter(deps: RouterDeps) {
           await assertTeachingSendAllowed(deps.prisma, context.actor.spaceId, target.botId);
         }
         return sendThreadMessage(deps, context.actor, target, input);
+      }),
+      react: authed.threads.react.handler(async ({ context, input }) => {
+        const target = await resolveThreadTarget(deps.prisma, context.actor, input);
+        const result = await reactToThreadMessage(
+          deps,
+          context.actor,
+          target,
+          input.messageId,
+          input.thumbsUp,
+        );
+        if (result.eventSeq != null) {
+          await deps.events.notify(target.threadId, result.eventSeq).catch((error) => {
+            console.error("thread reaction realtime notification", error);
+          });
+        }
+        if (result.runId) {
+          await deps.jobs.enqueue(runContinueJob(result.runId)).catch((error) => {
+            console.error("thread reaction enqueue", error);
+          });
+        }
+        return { ok: true as const };
       }),
       stop: authed.threads.stop.handler(async ({ context, input }) => {
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);

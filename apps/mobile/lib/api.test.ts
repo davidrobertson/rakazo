@@ -20,6 +20,7 @@ import {
   shouldApplyMobileThreadRefresh,
   signIn,
   signOut,
+  signUp,
   subscribeThread,
 } from "./api.js";
 import { resumeLiveNotifications } from "./live-notifications.js";
@@ -71,6 +72,27 @@ describe("mobile API authentication", () => {
     );
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith("rakazo.session_token", "session-token");
     expect(resumeLiveNotifications).not.toHaveBeenCalled();
+  });
+
+  it("creates an account and persists its session token", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ token: "signup-token" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await signUp("new@example.com", "correct horse", "New User");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3100/api/auth/sign-up/email",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "rakazo://" },
+        body: JSON.stringify({
+          email: "new@example.com",
+          password: "correct horse",
+          name: "New User",
+        }),
+      }),
+    );
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith("rakazo.session_token", "signup-token");
   });
 
   it("starts notifications only after the inbox selects the default space", async () => {
@@ -692,6 +714,19 @@ describe("mobile thread refresh targeting", () => {
 });
 
 describe("mobile thread event reduction", () => {
+  it("applies a persisted thumbs-up event to its message", () => {
+    const initial = snapshot([mobileMessage("message-1", [{ kind: "text", text: "Done" }])]);
+
+    const next = applyMobileThreadEvent(initial, {
+      type: "thread.message.reaction",
+      seq: 4,
+      payload: { messageId: "message-1", thumbsUp: true },
+    });
+
+    expect(next?.messages[0]?.thumbsUp).toBe(true);
+    expect(next?.cursor).toBe(4);
+  });
+
   it("prepends ordered history pages without duplicating the boundary message", () => {
     const initial = snapshot([mobileMessage("m-2", [], 2), mobileMessage("m-3", [], 3)], 2);
 
