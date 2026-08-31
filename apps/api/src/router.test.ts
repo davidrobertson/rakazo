@@ -138,7 +138,8 @@ describe("workspace settings", () => {
   });
 
   it("rejects workspace settings reads when membership is missing", async () => {
-    const { actor, handler } = workspaceSettingsDeps("Private workspace instructions", null);
+    const privateInstructions = "Private workspace instructions";
+    const { actor, handler } = workspaceSettingsDeps(privateInstructions, null);
 
     const { response } = await handler.handle(
       new Request("http://127.0.0.1/rpc/workspaceSettings/get", {
@@ -150,6 +151,9 @@ describe("workspace settings", () => {
     );
 
     expect(response.status).toBe(403);
+    const body = await response.text();
+    expect(body).not.toContain(privateInstructions);
+    expect(body).not.toContain("teamInstructions");
   });
 
   it("persists and returns multiline team instructions", async () => {

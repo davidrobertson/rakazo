@@ -41,25 +41,27 @@ describe("ScriptedAgentRuntime executionIds", () => {
   it("rejects scripted calls to tools that were not selected for the run", async () => {
     const runtime = new ScriptedAgentRuntime();
 
-    await expect(async () => {
-      for await (const _event of runtime.run({
-        botId: "bot-1",
-        threadId: "thread-1",
-        runId: "run-unselected-tool",
-        prompt: "ping",
-        instructions: "",
-        history: [],
-        tools: [],
-        model: { provider: "scripted", id: "scripted" },
-        script: [
-          {
-            toolCalls: [{ name: "recall_memory", args: { query: "private context" } }],
-            complete: true,
-          },
-        ],
-      })) {
-        // Consume the stream so runtime errors are observed.
-      }
-    }).rejects.toThrow('Scripted tool "recall_memory" is not available for this run');
+    await expect(
+      (async () => {
+        for await (const _event of runtime.run({
+          botId: "bot-1",
+          threadId: "thread-1",
+          runId: "run-unselected-tool",
+          prompt: "ping",
+          instructions: "",
+          history: [],
+          tools: [],
+          model: { provider: "scripted", id: "scripted" },
+          script: [
+            {
+              toolCalls: [{ name: "recall_memory", args: { query: "private context" } }],
+              complete: true,
+            },
+          ],
+        })) {
+          // Consume the stream so runtime errors are observed.
+        }
+      })(),
+    ).rejects.toThrow('Scripted tool "recall_memory" is not available for this run');
   });
 });
