@@ -87,6 +87,7 @@ import {
   approvalPausedToolResult,
   approvedCatalogReplay,
   approvedReplayArgs,
+  approvalReplayPathError,
   catalogApprovalRequest,
   catalogApprovalRuntimeArgs,
   claimApprovedEffect,
@@ -1215,15 +1216,23 @@ export function createRunExecutor(deps: ExecutorDeps) {
           // reconstructs after the worker resumes. This also makes a changed reconstruction
           // hit the already-approved effect instead of creating a second approval card.
           const nextApprovedTool = approvedEffectReplays.nextToolName();
+          const nextApprovedRequest = approvedEffectReplays.nextRequest();
           if (nextApprovedTool && nextApprovedTool !== name) {
             return {
               error: `Approved request ${nextApprovedTool} must be replayed before ${name}.`,
             };
           }
-          // Drain FIFO; for catalog wrappers keep resolveCall's parsed args so Zod
-          // stripping/coercion still matches the first-approval effect key and execute payload.
-          const approvedRequest = approvedEffectReplays.take(name);
-          if (approvedRequest) {
+          // Drain FIFO only when the pending approval matches this path (catalog vs direct).
+          // A same-named direct approval must not be consumed by a catalog-resolved call.
+          if (nextApprovedTool === name) {
+            const pathError = approvalReplayPathError(
+              name,
+              catalogRemapped,
+              nextApprovedRequest,
+              CATALOG_APPROVAL_TOOL,
+            );
+            if (pathError) return { error: pathError };
+            const approvedRequest = approvedEffectReplays.take(name)!;
             args = approvedReplayArgs(
               approvedRequest,
               args,

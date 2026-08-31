@@ -4,6 +4,7 @@ import {
   approvalPausedToolResult,
   approvedCatalogReplay,
   approvedReplayArgs,
+  approvalReplayPathError,
   catalogApprovalRequest,
   claimApprovedEffect,
   claimIntendedEffect,
@@ -109,6 +110,25 @@ describe("approved effect replay", () => {
       text: "approved",
       mode: "fast",
     });
+  });
+
+  it("rejects cross-path replay when a direct approval shares a catalog tool name", () => {
+    const marker = "__rakazoCatalogTool";
+    const direct = { text: "approved exactly" };
+    const catalog = catalogApprovalRequest(
+      { id: "install-A:notes.write", arguments: { text: "catalog" } },
+      "installed_execute_tool",
+      marker,
+    );
+
+    expect(approvalReplayPathError("notes.write", true, direct, marker)).toMatch(
+      /must be replayed as a direct tool call/,
+    );
+    expect(approvalReplayPathError("notes.write", false, catalog, marker)).toMatch(
+      /must be replayed via its catalog execute tool/,
+    );
+    expect(approvalReplayPathError("notes.write", false, direct, marker)).toBeUndefined();
+    expect(approvalReplayPathError("notes.write", true, catalog, marker)).toBeUndefined();
   });
 });
 
