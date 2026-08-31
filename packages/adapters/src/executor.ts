@@ -87,6 +87,8 @@ import {
   approvalPausedToolResult,
   approvedCatalogReplay,
   approvedReplayArgs,
+  catalogApprovalRequest,
+  catalogApprovalRuntimeArgs,
   claimApprovedEffect,
   claimIntendedEffect,
   completeExternalEffect,
@@ -443,8 +445,9 @@ export function buildApprovalContinuation(
       if (request && typeof request === "object" && !Array.isArray(request)) {
         const record = request as Record<string, unknown>;
         if (isCatalogApprovalRequest(record, CATALOG_APPROVAL_TOOL)) {
-          const { [CATALOG_APPROVAL_TOOL]: _internal, ...runtimeArgs } = record;
-          return `${String(record[CATALOG_APPROVAL_TOOL])}: ${formatRequest(runtimeArgs)}`;
+          return `${String(record[CATALOG_APPROVAL_TOOL])}: ${formatRequest(
+            catalogApprovalRuntimeArgs(record, CATALOG_APPROVAL_TOOL),
+          )}`;
         }
       }
       return `${effect.kind}: ${formatRequest(request)}`;
@@ -1185,6 +1188,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           if (approvedReplay.args) connectorCall.args = approvedReplay.args;
           let effectRequest = args;
           let connectorReadOnly = readOnlyConnectorTools.has(name);
+          let catalogRemapped = false;
           if (connectorCall.route && deps.connector?.resolveCall) {
             try {
               const resolved = await deps.connector.resolveCall(connectorCall, context);
@@ -1194,12 +1198,14 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 }
                 name = resolved.tool.name;
                 args = resolved.call.args;
-                effectRequest = {
-                  ...connectorCall.args,
-                  [CATALOG_APPROVAL_TOOL]: connectorCall.tool,
-                };
+                effectRequest = catalogApprovalRequest(
+                  connectorCall.args,
+                  connectorCall.tool,
+                  CATALOG_APPROVAL_TOOL,
+                );
                 connectorCall = resolved.call;
                 connectorReadOnly = resolved.tool.readOnly === true;
+                catalogRemapped = true;
               }
             } catch (error) {
               return { error: sanitizeConnectorError(error) };
@@ -1218,7 +1224,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
           // stripping/coercion still matches the first-approval effect key and execute payload.
           const approvedRequest = approvedEffectReplays.take(name);
           if (approvedRequest) {
-            args = approvedReplayArgs(approvedRequest, args, CATALOG_APPROVAL_TOOL);
+            args = approvedReplayArgs(
+              approvedRequest,
+              args,
+              CATALOG_APPROVAL_TOOL,
+              catalogRemapped,
+            );
           }
           const viaConnector = !BUILTIN_AGENT_TOOL_NAMES.has(name);
           const requiresApprovalByDefault = toolRequiresApproval(name, viaConnector);

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   approvedCatalogReplay,
   approvedReplayArgs,
+  catalogApprovalRequest,
   createApprovedEffectReplayQueue,
 } from "./approval-effect.js";
 import {
@@ -144,11 +145,11 @@ describe("OpenAPI connector import", () => {
     } as never;
     const execute = (await provider.discoverTools(context))[2]!;
     const marker = "__rakazoCatalogTool";
-    const approvedRequest = {
-      id: "api-approved:operation_20",
-      arguments: {},
-      [marker]: execute.name,
-    };
+    const approvedRequest = catalogApprovalRequest(
+      { id: "api-approved:operation_20", arguments: {} },
+      execute.name,
+      marker,
+    );
     const queue = createApprovedEffectReplayQueue([
       { kind: "operation_20", request: approvedRequest },
     ]);

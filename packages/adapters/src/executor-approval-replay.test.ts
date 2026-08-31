@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   approvedCatalogReplay,
   approvedReplayArgs,
+  catalogApprovalRequest,
   createApprovedEffectReplayQueue,
 } from "./approval-effect.js";
 import { APPROVED_EFFECT_REPLAY_ORDER, buildApprovalContinuation } from "./executor.js";
@@ -26,11 +27,11 @@ describe("executor approval replay", () => {
         route: { connectorId: "installed", resourceId, toolName },
       },
     ]);
-    const request = {
-      id: `${resourceId}:${toolName}`,
-      arguments: {},
-      __rakazoCatalogTool: "installed_execute_tool",
-    };
+    const request = catalogApprovalRequest(
+      { id: `${resourceId}:${toolName}`, arguments: {} },
+      "installed_execute_tool",
+      "__rakazoCatalogTool",
+    );
     const queue = createApprovedEffectReplayQueue([{ kind: toolName, request }]);
 
     expect(tool!.name).toBe(toolName);
@@ -69,11 +70,11 @@ describe("executor approval replay", () => {
       [
         {
           kind: "mcp__demo__send_message",
-          request: {
-            id: "server-1:send_message",
-            arguments: { text: "approved exactly" },
-            __rakazoCatalogTool: "mcp_execute_tool",
-          },
+          request: catalogApprovalRequest(
+            { id: "server-1:send_message", arguments: { text: "approved exactly" } },
+            "mcp_execute_tool",
+            "__rakazoCatalogTool",
+          ),
         },
       ],
       JSON.stringify,
@@ -83,6 +84,7 @@ describe("executor approval replay", () => {
       'mcp_execute_tool: {"id":"server-1:send_message","arguments":{"text":"approved exactly"}}',
     );
     expect(continuation).not.toContain("__rakazoCatalogTool");
+    expect(continuation).not.toContain("__rakazoCatalogApproval");
   });
 
   it("keeps a direct-tool argument named like the catalog marker in continuation JSON", () => {
@@ -104,15 +106,35 @@ describe("executor approval replay", () => {
     );
   });
 
+  it("keeps a catalog-shaped direct tool under its own kind in continuation JSON", () => {
+    const continuation = buildApprovalContinuation(
+      [
+        {
+          kind: "notes.write",
+          request: {
+            id: "row-1",
+            arguments: { mode: "strict" },
+            __rakazoCatalogTool: "installed_execute_tool",
+          },
+        },
+      ],
+      JSON.stringify,
+    );
+
+    expect(continuation).toContain("notes.write:");
+    expect(continuation).not.toMatch(/^installed_execute_tool:/m);
+    expect(continuation).toContain('"__rakazoCatalogTool":"installed_execute_tool"');
+  });
+
   it("pins lazy approval replay to the approved source when tool names collide", () => {
     const effects = [
       {
         kind: "delete_item",
-        request: {
-          id: "install-A:delete_item",
-          arguments: { target: "approved" },
-          __rakazoCatalogTool: "installed_execute_tool",
-        },
+        request: catalogApprovalRequest(
+          { id: "install-A:delete_item", arguments: { target: "approved" } },
+          "installed_execute_tool",
+          "__rakazoCatalogTool",
+        ),
       },
     ];
     const queue = createApprovedEffectReplayQueue(effects);
@@ -148,11 +170,11 @@ describe("executor approval replay", () => {
 
   it("keeps resolveCall parsed args when draining an approved catalog replay", () => {
     const marker = "__rakazoCatalogTool";
-    const approvedRequest = {
-      id: "install-A:create_item",
-      arguments: {},
-      [marker]: "installed_execute_tool",
-    };
+    const approvedRequest = catalogApprovalRequest(
+      { id: "install-A:create_item", arguments: {} },
+      "installed_execute_tool",
+      marker,
+    );
     const queue = createApprovedEffectReplayQueue([
       { kind: "create_item", request: approvedRequest },
     ]);
@@ -176,7 +198,7 @@ describe("executor approval replay", () => {
       },
       catalogEntries([tool]),
     );
-    const replayed = approvedReplayArgs(queue.take(tool.name)!, resolved.call.args, marker);
+    const replayed = approvedReplayArgs(queue.take(tool.name)!, resolved.call.args, marker, true);
 
     expect(resolved.call.args).toEqual({ count: 3 });
     expect(replayed).toEqual({ count: 3 });

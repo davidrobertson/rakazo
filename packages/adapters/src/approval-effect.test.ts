@@ -4,6 +4,7 @@ import {
   approvalPausedToolResult,
   approvedCatalogReplay,
   approvedReplayArgs,
+  catalogApprovalRequest,
   claimApprovedEffect,
   claimIntendedEffect,
   completeExternalEffect,
@@ -71,14 +72,39 @@ describe("approved effect replay", () => {
     expect(queue.assertDrained).not.toThrow();
   });
 
-  it("still recognizes the full catalog envelope as a catalog replay", () => {
+  it("does not treat a direct tool with catalog-shaped args as a catalog replay", () => {
     const marker = "__rakazoCatalogTool";
+    // Legitimate connector tool that accepts id + arguments + the marker field name.
     const approved = {
-      id: "install-A:notes.write",
-      arguments: { text: "approved" },
+      id: "row-1",
+      arguments: { mode: "strict" },
       [marker]: "installed_execute_tool",
     };
+    const reconstructed = {
+      id: "row-1",
+      arguments: { mode: "model-changed" },
+      [marker]: "installed_execute_tool",
+    };
+    expect(isCatalogApprovalRequest(approved, marker)).toBe(false);
+
+    const queue = createApprovedEffectReplayQueue([{ kind: "notes.write", request: approved }]);
+    expect(approvedCatalogReplay(queue, "notes.write", marker)).toEqual({});
+    expect(approvedReplayArgs(queue.take("notes.write")!, reconstructed, marker)).toEqual(approved);
+    expect(queue.assertDrained).not.toThrow();
+  });
+
+  it("still recognizes the opaque catalog approval mark as a catalog replay", () => {
+    const marker = "__rakazoCatalogTool";
+    const approved = catalogApprovalRequest(
+      { id: "install-A:notes.write", arguments: { text: "approved" } },
+      "installed_execute_tool",
+      marker,
+    );
     expect(isCatalogApprovalRequest(approved, marker)).toBe(true);
+    expect(approvedReplayArgs(approved, { text: "approved", mode: "fast" }, marker, true)).toEqual({
+      text: "approved",
+      mode: "fast",
+    });
     expect(approvedReplayArgs(approved, { text: "approved", mode: "fast" }, marker)).toEqual({
       text: "approved",
       mode: "fast",

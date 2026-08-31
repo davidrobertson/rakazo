@@ -47,19 +47,54 @@ export function createApprovedEffectReplayQueue(
   };
 }
 
+/** Persisted only on catalog-wrapper approvals; never part of connector tool schemas. */
+export const CATALOG_APPROVAL_MARK = "__rakazoCatalogApproval";
+export const CATALOG_APPROVAL_TOKEN = "rakazo.catalog.approval.v1";
+
+export function catalogApprovalRequest(
+  envelope: Record<string, unknown>,
+  wrapperTool: string,
+  marker: string,
+): Record<string, unknown> {
+  return {
+    ...envelope,
+    [marker]: wrapperTool,
+    [CATALOG_APPROVAL_MARK]: CATALOG_APPROVAL_TOKEN,
+  };
+}
+
+export function catalogApprovalRuntimeArgs(
+  request: Record<string, unknown>,
+  marker: string,
+): Record<string, unknown> {
+  const { [marker]: _wrapper, [CATALOG_APPROVAL_MARK]: _mark, ...runtimeArgs } = request;
+  return runtimeArgs;
+}
+
 export function isCatalogApprovalRequest(
   request: Record<string, unknown> | undefined,
   marker: string,
 ): boolean {
-  // Require the full lazy catalog envelope so a direct tool argument named like the
-  // internal marker cannot be mistaken for a catalog wrapper approval.
-  return Boolean(
-    request &&
-      typeof request[marker] === "string" &&
-      typeof request.id === "string" &&
-      request.arguments != null &&
-      typeof request.arguments === "object" &&
-      !Array.isArray(request.arguments),
+  // Opaque mark + exact top-level keys — a direct tool that happens to accept
+  // string id / object arguments / string marker must not look like a catalog approval.
+  if (!request || request[CATALOG_APPROVAL_MARK] !== CATALOG_APPROVAL_TOKEN) return false;
+  const wrapper = request[marker];
+  if (typeof wrapper !== "string" || !wrapper.endsWith("_execute_tool")) return false;
+  if (typeof request.id !== "string") return false;
+  if (
+    request.arguments == null ||
+    typeof request.arguments !== "object" ||
+    Array.isArray(request.arguments)
+  ) {
+    return false;
+  }
+  const keys = Object.keys(request);
+  return (
+    keys.length === 4 &&
+    keys.every(
+      (key) =>
+        key === "id" || key === "arguments" || key === marker || key === CATALOG_APPROVAL_MARK,
+    )
   );
 }
 
@@ -72,19 +107,22 @@ export function approvedCatalogReplay(
   if (!isCatalogApprovalRequest(pending, marker)) return {};
   const approvedTool = pending![marker];
   if (approvedTool !== toolName) {
+    // Direct tool whose args only resemble a catalog envelope: leave it for take().
+    if (queue.nextToolName() === toolName) return {};
     return { error: `Approved request ${approvedTool} must be replayed before ${toolName}.` };
   }
-  const args = { ...pending };
-  delete args[marker];
-  return { args };
+  return { args: catalogApprovalRuntimeArgs(pending!, marker) };
 }
 
 export function approvedReplayArgs(
   approvedRequest: Record<string, unknown>,
   resolvedArgs: Record<string, unknown>,
   marker: string,
+  catalogRemapped = false,
 ): Record<string, unknown> {
-  return isCatalogApprovalRequest(approvedRequest, marker) ? resolvedArgs : approvedRequest;
+  // Prefer the executor's resolveCall signal; fall back to the opaque persisted mark.
+  if (catalogRemapped || isCatalogApprovalRequest(approvedRequest, marker)) return resolvedArgs;
+  return approvedRequest;
 }
 
 export function approvalPausedToolResult(): ApprovalPausedToolResult {
