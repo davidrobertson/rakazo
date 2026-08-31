@@ -179,6 +179,7 @@ export interface ConnectorRoute {
   connectorId: string;
   toolName: string;
   resourceId?: string;
+  resourceRevision?: string | number;
 }
 
 export interface ConnectorCall {

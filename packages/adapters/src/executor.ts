@@ -1249,6 +1249,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
               {
                 connectorId: connectorCall.route.connectorId,
                 resourceId: connectorCall.route.resourceId,
+                resourceRevision: connectorCall.route.resourceRevision,
                 toolName: connectorCall.route.toolName,
               },
               args,
@@ -1281,6 +1282,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 ? {
                     connectorId: connectorCall.route.connectorId,
                     resourceId: connectorCall.route.resourceId,
+                    resourceRevision: connectorCall.route.resourceRevision,
                     toolName: connectorCall.route.toolName,
                   }
                 : undefined;

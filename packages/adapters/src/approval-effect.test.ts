@@ -147,6 +147,12 @@ describe("approved effect replay", () => {
     );
     const same = { connectorId: "installed", resourceId: "install-A", toolName: "notes.write" };
     const other = { connectorId: "installed", resourceId: "install-B", toolName: "notes.write" };
+    const changedRevision = {
+      connectorId: "installed",
+      resourceId: "install-A",
+      resourceRevision: 2,
+      toolName: "notes.write",
+    };
 
     expect(
       approvalReplayResourceError("notes.write", true, approved, same, marker),
@@ -160,6 +166,9 @@ describe("approved effect replay", () => {
     expect(approvalReplayResourceError("notes.write", false, approved, other, marker)).toMatch(
       /different connector resource/,
     );
+    expect(
+      approvalReplayResourceError("notes.write", false, approved, changedRevision, marker),
+    ).toMatch(/different connector resource/);
     expect(
       approvalReplayResourceError("notes.write", true, { text: "legacy" }, same, marker),
     ).toMatch(/must be replayed as a direct tool call/);

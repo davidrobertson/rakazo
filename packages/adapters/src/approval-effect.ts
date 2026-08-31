@@ -84,6 +84,7 @@ export type BoundApprovalRoute = {
   connectorId: string;
   resourceId: string;
   toolName: string;
+  resourceRevision?: string | number;
 };
 
 export function catalogApprovalRequest(
@@ -145,6 +146,9 @@ export function boundDirectApprovalDetails(
     typeof (route as BoundApprovalRoute).connectorId !== "string" ||
     typeof (route as BoundApprovalRoute).resourceId !== "string" ||
     typeof (route as BoundApprovalRoute).toolName !== "string" ||
+    ((route as BoundApprovalRoute).resourceRevision !== undefined &&
+      typeof (route as BoundApprovalRoute).resourceRevision !== "string" &&
+      typeof (route as BoundApprovalRoute).resourceRevision !== "number") ||
     !payload.args ||
     typeof payload.args !== "object" ||
     Array.isArray(payload.args)
@@ -166,7 +170,8 @@ export function approvalRoutesMatch(
       right &&
       left.connectorId === right.connectorId &&
       left.resourceId === right.resourceId &&
-      left.toolName === right.toolName,
+      left.toolName === right.toolName &&
+      left.resourceRevision === right.resourceRevision,
   );
 }
 

@@ -131,6 +131,7 @@ export class McpConnector implements ConnectorProvider {
               route: {
                 connectorId: "mcp",
                 resourceId: assignment.serverId,
+                resourceRevision: assignment.server.revision,
                 toolName: tool.name,
               },
             }));
