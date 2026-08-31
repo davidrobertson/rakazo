@@ -97,7 +97,7 @@ export function AskCard({
           <Trans>No longer active</Trans>
         </div>
       ) : askActions?.length ? (
-        <div className="mt-3.5 flex gap-2">
+        <div className="mt-3.5 flex flex-wrap gap-2">
           {askActions.map((action) => (
             <button
               key={action.id}

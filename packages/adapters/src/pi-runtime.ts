@@ -477,9 +477,12 @@ function toAgentTool(tool: ConnectorTool, host: ToolHost, exposedName: string): 
         return { reason: String(raw.reason ?? "I need you on the screen.") };
       }
       if (tool.name === "ask_user") {
+        const options = Array.isArray(raw.options) ? raw.options.map(String) : raw.options;
         return {
           question: String(raw.question ?? "What should I use?"),
-          options: Array.isArray(raw.options) ? raw.options.map(String) : [],
+          // Keep a missing/invalid options value as-is so schema minItems can reject it;
+          // do not coerce to [] (that used to look like a valid empty list upstream).
+          options,
         };
       }
       if (tool.name === "request_secret") {
@@ -925,7 +928,17 @@ function jsonField(spec: unknown): ReturnType<typeof Type.String> {
   const type = "type" in definition ? String(definition.type) : "string";
   if (type === "number" || type === "integer") return Type.Number() as never;
   if (type === "boolean") return Type.Boolean() as never;
-  if (type === "array") return Type.Array(jsonField(definition.items)) as never;
+  if (type === "array") {
+    const options: {
+      minItems?: number;
+      maxItems?: number;
+      uniqueItems?: boolean;
+    } = {};
+    if (typeof definition.minItems === "number") options.minItems = definition.minItems;
+    if (typeof definition.maxItems === "number") options.maxItems = definition.maxItems;
+    if (definition.uniqueItems === true) options.uniqueItems = true;
+    return Type.Array(jsonField(definition.items), options) as never;
+  }
   if (type === "object") return jsonSchemaParameters(definition) as never;
   return Type.String();
 }

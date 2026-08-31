@@ -91,6 +91,39 @@ export interface PauseRunForInput {
   leaseOwner: string;
   leaseFence: number;
   blocks: MessageBlock[];
+  /**
+   * Unredacted choice actions for resume. Persisted only on the run checkpoint
+   * (not in message blocks) so clients still see redacted labels.
+   */
+  offeredActions?: Array<{ id: string; label: string }>;
+}
+
+const CHOICE_ASK_CHECKPOINT_KIND = "choice_ask_v1";
+
+function choiceAskCheckpoint(actions: Array<{ id: string; label: string }>): string {
+  return JSON.stringify({ kind: CHOICE_ASK_CHECKPOINT_KIND, actions });
+}
+
+function resumeChoiceLabel(
+  selected: { id: string; label: string },
+  checkpoint: string | null | undefined,
+): string {
+  if (!checkpoint) return selected.label;
+  try {
+    const parsed = JSON.parse(checkpoint) as {
+      kind?: string;
+      actions?: Array<{ id?: unknown; label?: unknown }>;
+    };
+    if (parsed.kind !== CHOICE_ASK_CHECKPOINT_KIND || !Array.isArray(parsed.actions)) {
+      return selected.label;
+    }
+    const offered = parsed.actions.find((action) => action.id === selected.id);
+    return typeof offered?.label === "string" && offered.label.length > 0
+      ? offered.label
+      : selected.label;
+  } catch {
+    return selected.label;
+  }
 }
 
 export interface PauseRunForTakeover {
@@ -394,7 +427,7 @@ export async function answerRunInput(
         threadId: input.threadId,
         status: "waiting_input",
       },
-      select: { botId: true, userId: true },
+      select: { botId: true, userId: true, checkpoint: true },
     });
     if (!run) return null;
     const message = await tx.message.findFirst({
@@ -446,7 +479,10 @@ export async function answerRunInput(
         threadId: input.threadId,
         status: "waiting_input",
       },
-      data: { status: "queued" },
+      data: {
+        status: "queued",
+        ...(choiceAsk ? { checkpoint: null } : {}),
+      },
     });
     if (queued.count !== 1) return null;
 
@@ -495,11 +531,14 @@ export async function answerRunInput(
         data: { status: "approved" },
       });
     } else {
+      const resumeLabel = selectedChoice
+        ? resumeChoiceLabel(selectedChoice, run.checkpoint)
+        : undefined;
       const task = await tx.task.updateMany({
         where: { runs: { some: { id: input.runId } } },
         data: {
           prompt: selectedChoice
-            ? `Selected choice ${selectedChoice.id}: ${selectedChoice.label}`
+            ? `Selected choice ${selectedChoice.id}: ${resumeLabel}`
             : input.answer,
         },
       });
@@ -551,7 +590,14 @@ export async function pauseRunForInput(
         leaseOwner: input.leaseOwner,
         leaseFence: input.leaseFence,
       },
-      data: { status: "waiting_input", leaseOwner: null, leaseExpiresAt: null },
+      data: {
+        status: "waiting_input",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        ...(input.offeredActions?.length
+          ? { checkpoint: choiceAskCheckpoint(input.offeredActions) }
+          : {}),
+      },
     });
     if (paused.count !== 1) return null;
 

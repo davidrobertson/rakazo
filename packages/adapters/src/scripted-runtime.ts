@@ -174,6 +174,27 @@ export function inferScript(
     ];
   }
   if (
+    lower.includes("tappable choices") ||
+    lower.includes("choice buttons") ||
+    lower.includes("pick from these cities")
+  ) {
+    return [
+      {
+        assistant: "pick one to continue.",
+        ask: {
+          text: "Which city should I use?",
+          detail: "Tap one option.",
+          actions: [
+            { id: "choice-1", label: "Berlin" },
+            { id: "choice-2", label: "Seoul" },
+            { id: "choice-3", label: "Toronto" },
+            { id: "choice-4", label: "Lisbon" },
+          ],
+        },
+      },
+    ];
+  }
+  if (
     lower.includes("ask me") ||
     lower.includes("which city") ||
     lower.includes("need a decision")

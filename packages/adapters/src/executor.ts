@@ -2623,6 +2623,8 @@ export function createRunExecutor(deps: ExecutorDeps) {
                     actions: safeActions,
                   },
                 ],
+                // Keep unredacted labels on the run for resume; message blocks stay redacted.
+                offeredActions: event.actions,
               });
               if (!paused) return;
               await notifyRun(deps, run, {
