@@ -154,6 +154,15 @@ describe("executor approval replay", () => {
     expect(continuation).not.toMatch(/(^|\n)delete_item:/);
   });
 
+  it("keeps the original approval effect key after collision uniquify", () => {
+    const args = { target: "approved" };
+    const original = approvalEffectKey("run", "delete_item", args);
+    const uniquified = approvalEffectKey("run", "installed__install-A__delete_item", args);
+    expect(original).not.toBe(uniquified);
+    // Replay must key with the stored effect kind, not the live uniquified name.
+    expect(approvalEffectKey("run", "delete_item", args)).toBe(original);
+  });
+
   it("pins lazy approval replay to the approved source when tool names collide", () => {
     const effects = [
       {

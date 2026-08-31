@@ -1301,6 +1301,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             };
           }
           // Drain FIFO only when the pending approval matches this path (catalog vs direct).
+          let replayEffectToolName = name;
           if (nextApprovedTool && (nextApprovedTool === name || sameBoundResource)) {
             const pathError = approvalReplayPathError(
               name,
@@ -1317,6 +1318,8 @@ export function createRunExecutor(deps: ExecutorDeps) {
               CATALOG_APPROVAL_TOOL,
             );
             if (resourceError) return { error: resourceError };
+            // Keep the original approved effect kind/key when collision uniquify renamed the live tool.
+            if (sameBoundResource) replayEffectToolName = nextApprovedTool;
             const approvedRequest = approvedEffectReplays.take(nextApprovedTool)!;
             // Catalog wrappers keep resolveCall's parsed args so Zod stripping/coercion
             // still matches the first-approval effect key and execute payload.
@@ -1377,12 +1380,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
           const needsApprovalEarly = plan === "ask" || plan === "judge";
           const effectKey =
             name === "request_secret" || needsApprovalEarly || requiresApprovalByDefault
-              ? approvalEffectKey(runId, name, args)
+              ? approvalEffectKey(runId, replayEffectToolName, args)
               : executionId;
           const applied =
             READ_ONLY_AGENT_TOOLS.has(name) || connectorReadOnly
               ? undefined
-              : await recordEffect(deps, run, name, effectKey, effectRequest);
+              : await recordEffect(deps, run, replayEffectToolName, effectKey, effectRequest);
 
           const runAutoReview = async () => {
             if (!checker) return;
