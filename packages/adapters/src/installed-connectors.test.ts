@@ -153,7 +153,7 @@ describe("OpenAPI connector import", () => {
     const queue = createApprovedEffectReplayQueue([
       { kind: "operation_20", request: approvedRequest },
     ]);
-    const replay = approvedCatalogReplay(queue, execute.name, marker);
+    const replay = approvedCatalogReplay(queue, execute.name, marker, true);
     const resolved = await provider.resolveCall(
       {
         tool: execute.name,

@@ -142,6 +142,7 @@ import { checkpointAndRecordComputerWorkspace } from "./computer-workspace.js";
 import { sanitizeConnectorError } from "./connector-safety.js";
 import { resolveDeploymentModel } from "./deployment-model.js";
 import { handoffToGroupBot, loadGroupContext } from "./group-handoff.js";
+import { CATALOG_EXECUTE } from "./lazy-tool-catalog.js";
 import {
   COMPACTION_BATCH_SIZE,
   formatCompactedSummary,
@@ -1174,14 +1175,20 @@ export function createRunExecutor(deps: ExecutorDeps) {
             executionId,
             route: connectorRoutes.get(name),
           };
+          const onCatalogExecuteRoute = Boolean(
+            connectorCall.route &&
+              !connectorCall.route.resourceId &&
+              connectorCall.route.toolName === CATALOG_EXECUTE,
+          );
           const approvedReplay = approvedCatalogReplay(
             approvedEffectReplays,
             name,
             CATALOG_APPROVAL_TOOL,
+            onCatalogExecuteRoute,
           );
           if (approvedReplay.error) return { error: approvedReplay.error };
           if (approvedReplay.args) connectorCall.args = approvedReplay.args;
-          let catalogRemapped = Boolean(approvedReplay.args);
+          let catalogRemapped = false;
           let effectRequest: unknown = args;
           let connectorReadOnly = readOnlyConnectorTools.has(name);
           if (connectorCall.route && deps.connector?.resolveCall) {
@@ -1205,6 +1212,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
             } catch (error) {
               return { error: sanitizeConnectorError(error) };
             }
+          }
+          if (approvedReplay.args && !catalogRemapped) {
+            return {
+              error:
+                "Approved catalog request could not be resolved to a tool. Deny and retry the direct tool call.",
+            };
           }
           // Approval applies to the exact persisted request, never to a payload the model
           // reconstructs after the worker resumes. This also makes a changed reconstruction

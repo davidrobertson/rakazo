@@ -119,7 +119,7 @@ describe("executor approval replay", () => {
       },
     ];
     const queue = createApprovedEffectReplayQueue(effects);
-    const replay = approvedCatalogReplay(queue, "installed_execute_tool", "__rakazoCatalogTool");
+    const replay = approvedCatalogReplay(queue, "installed_execute_tool", "__rakazoCatalogTool", true);
     const modelRuntimeArgs = {
       id: "install-B:delete_item",
       arguments: { target: "model-reconstructed" },
@@ -159,7 +159,7 @@ describe("executor approval replay", () => {
     const queue = createApprovedEffectReplayQueue([
       { kind: "create_item", request: approvedRequest },
     ]);
-    const replay = approvedCatalogReplay(queue, "installed_execute_tool", marker);
+    const replay = approvedCatalogReplay(queue, "installed_execute_tool", marker, true);
     const tool: ConnectorTool = {
       name: "create_item",
       description: "Create one item",

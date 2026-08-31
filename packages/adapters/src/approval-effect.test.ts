@@ -94,6 +94,27 @@ describe("approved effect replay", () => {
     });
   });
 
+  it("rejects catalog replay against a same-named direct tool after catalog shrink", () => {
+    const marker = "__rakazoCatalogTool";
+    const catalog = catalogApprovalRequest(
+      "installed_execute_tool",
+      { id: "install-A:installed_execute_tool", arguments: { text: "approved" } },
+      marker,
+    );
+    const queue = createApprovedEffectReplayQueue([
+      { kind: "installed_execute_tool", request: catalog },
+    ]);
+
+    // Direct invocation (no catalog execute route) must not consume the wrapper envelope.
+    expect(approvedCatalogReplay(queue, "installed_execute_tool", marker, false)).toEqual({
+      error:
+        "Approved catalog request installed_execute_tool must be replayed via its catalog execute tool.",
+    });
+    expect(approvedCatalogReplay(queue, "installed_execute_tool", marker, true)).toEqual({
+      args: { id: "install-A:installed_execute_tool", arguments: { text: "approved" } },
+    });
+  });
+
   it("rejects cross-path replay when a direct approval shares a catalog tool name", () => {
     const marker = "__rakazoCatalogTool";
     const direct = { text: "approved exactly" };

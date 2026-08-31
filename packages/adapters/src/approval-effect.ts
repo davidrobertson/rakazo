@@ -44,9 +44,20 @@ export function approvedCatalogReplay(
   queue: ApprovedEffectReplayQueue,
   toolName: string,
   marker: string,
+  onCatalogExecuteRoute = false,
 ): { args?: Record<string, unknown>; error?: string } {
   const pending = catalogApprovalDetails(queue.nextRequest(), marker);
   if (!pending) return {};
+  // Catalog approvals must only bind to the catalog execute wrapper route. After a
+  // catalog shrink, a same-named direct tool must not consume the wrapper envelope.
+  if (!onCatalogExecuteRoute) {
+    if (pending.toolName === toolName || queue.nextToolName() === toolName) {
+      return {
+        error: `Approved catalog request ${pending.toolName} must be replayed via its catalog execute tool.`,
+      };
+    }
+    return {};
+  }
   if (pending.toolName !== toolName) {
     return { error: `Approved request ${pending.toolName} must be replayed before ${toolName}.` };
   }
