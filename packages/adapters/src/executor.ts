@@ -86,8 +86,11 @@ import { buildApprovalAskBlock } from "./approval-ask.js";
 import {
   approvalPausedToolResult,
   approvalReplayPathError,
+  approvalReplayResourceError,
   approvedCatalogReplay,
   approvedReplayArgs,
+  boundDirectApprovalDetails,
+  boundDirectApprovalRequest,
   catalogApprovalDetails,
   catalogApprovalRequest,
   claimApprovedEffect,
@@ -445,6 +448,10 @@ export function buildApprovalContinuation(
       const catalog = catalogApprovalDetails(effect.request, CATALOG_APPROVAL_TOOL);
       if (catalog) {
         return `${catalog.toolName}: ${formatRequest(catalog.args)}`;
+      }
+      const bound = boundDirectApprovalDetails(effect.request, CATALOG_APPROVAL_TOOL);
+      if (bound) {
+        return `${effect.kind}: ${formatRequest(bound.args)}`;
       }
       return `${effect.kind}: ${formatRequest(effect.request)}`;
     }),
@@ -1219,6 +1226,22 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 "Approved catalog request could not be resolved to a tool. Deny and retry the direct tool call.",
             };
           }
+          if (
+            !catalogRemapped &&
+            connectorCall.route?.resourceId &&
+            connectorCall.route.connectorId &&
+            connectorCall.route.toolName
+          ) {
+            effectRequest = boundDirectApprovalRequest(
+              {
+                connectorId: connectorCall.route.connectorId,
+                resourceId: connectorCall.route.resourceId,
+                toolName: connectorCall.route.toolName,
+              },
+              args,
+              CATALOG_APPROVAL_TOOL,
+            );
+          }
           // Approval applies to the exact persisted request, never to a payload the model
           // reconstructs after the worker resumes. This also makes a changed reconstruction
           // hit the already-approved effect instead of creating a second approval card.
@@ -1230,7 +1253,6 @@ export function createRunExecutor(deps: ExecutorDeps) {
             };
           }
           // Drain FIFO only when the pending approval matches this path (catalog vs direct).
-          // A same-named direct approval must not be consumed by a catalog-resolved call.
           if (nextApprovedTool === name) {
             const pathError = approvalReplayPathError(
               name,
@@ -1239,6 +1261,24 @@ export function createRunExecutor(deps: ExecutorDeps) {
               CATALOG_APPROVAL_TOOL,
             );
             if (pathError) return { error: pathError };
+            const liveRoute =
+              connectorCall.route?.resourceId &&
+              connectorCall.route.connectorId &&
+              connectorCall.route.toolName
+                ? {
+                    connectorId: connectorCall.route.connectorId,
+                    resourceId: connectorCall.route.resourceId,
+                    toolName: connectorCall.route.toolName,
+                  }
+                : undefined;
+            const resourceError = approvalReplayResourceError(
+              name,
+              catalogRemapped,
+              nextApprovedRequest,
+              liveRoute,
+              CATALOG_APPROVAL_TOOL,
+            );
+            if (resourceError) return { error: resourceError };
             const approvedRequest = approvedEffectReplays.take(name)!;
             // Catalog wrappers keep resolveCall's parsed args so Zod stripping/coercion
             // still matches the first-approval effect key and execute payload.

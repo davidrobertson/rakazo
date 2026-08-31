@@ -70,11 +70,21 @@ export function approvedReplayArgs(
   marker: string,
 ): Record<string, unknown> {
   if (catalogApprovalDetails(approvedRequest, marker)) return resolvedArgs;
+  const bound = boundDirectApprovalDetails(approvedRequest, marker);
+  if (bound) return bound.args;
   if (!approvedRequest || typeof approvedRequest !== "object" || Array.isArray(approvedRequest)) {
     throw new TypeError("Approved tool request is not a JSON object");
   }
   return approvedRequest as Record<string, unknown>;
 }
+
+export const DIRECT_APPROVAL_TAG = "direct";
+
+export type BoundApprovalRoute = {
+  connectorId: string;
+  resourceId: string;
+  toolName: string;
+};
 
 export function catalogApprovalRequest(
   toolName: string,
@@ -93,6 +103,7 @@ export function catalogApprovalDetails(
     request.length !== 3 ||
     request[0] !== marker ||
     typeof request[1] !== "string" ||
+    !request[1].endsWith("_execute_tool") ||
     !request[2] ||
     typeof request[2] !== "object" ||
     Array.isArray(request[2])
@@ -100,6 +111,63 @@ export function catalogApprovalDetails(
     return undefined;
   }
   return { toolName: request[1], args: request[2] as Record<string, unknown> };
+}
+
+export function boundDirectApprovalRequest(
+  route: BoundApprovalRoute,
+  args: Record<string, unknown>,
+  marker: string,
+): unknown[] {
+  return [marker, DIRECT_APPROVAL_TAG, { route, args }];
+}
+
+export function boundDirectApprovalDetails(
+  request: unknown,
+  marker: string,
+): { route: BoundApprovalRoute; args: Record<string, unknown> } | undefined {
+  if (
+    !Array.isArray(request) ||
+    request.length !== 3 ||
+    request[0] !== marker ||
+    request[1] !== DIRECT_APPROVAL_TAG ||
+    !request[2] ||
+    typeof request[2] !== "object" ||
+    Array.isArray(request[2])
+  ) {
+    return undefined;
+  }
+  const payload = request[2] as { route?: unknown; args?: unknown };
+  const route = payload.route;
+  if (
+    !route ||
+    typeof route !== "object" ||
+    Array.isArray(route) ||
+    typeof (route as BoundApprovalRoute).connectorId !== "string" ||
+    typeof (route as BoundApprovalRoute).resourceId !== "string" ||
+    typeof (route as BoundApprovalRoute).toolName !== "string" ||
+    !payload.args ||
+    typeof payload.args !== "object" ||
+    Array.isArray(payload.args)
+  ) {
+    return undefined;
+  }
+  return {
+    route: route as BoundApprovalRoute,
+    args: payload.args as Record<string, unknown>,
+  };
+}
+
+export function approvalRoutesMatch(
+  left: BoundApprovalRoute | undefined,
+  right: BoundApprovalRoute | undefined,
+): boolean {
+  return Boolean(
+    left &&
+      right &&
+      left.connectorId === right.connectorId &&
+      left.resourceId === right.resourceId &&
+      left.toolName === right.toolName,
+  );
 }
 
 /** Reject draining a catalog approval from a non-catalog call. Direct approvals may be
@@ -114,6 +182,26 @@ export function approvalReplayPathError(
   const approvedIsCatalog = Boolean(catalogApprovalDetails(approvedRequest, marker));
   if (!catalogRemapped && approvedIsCatalog) {
     return `Approved catalog request ${toolName} must be replayed via its catalog execute tool.`;
+  }
+  return undefined;
+}
+
+/** After catalog growth, a direct approval may only execute on the original connector resource. */
+export function approvalReplayResourceError(
+  toolName: string,
+  catalogRemapped: boolean,
+  approvedRequest: unknown,
+  liveRoute: BoundApprovalRoute | undefined,
+  marker: string,
+): string | undefined {
+  if (!catalogRemapped) return undefined;
+  if (catalogApprovalDetails(approvedRequest, marker)) return undefined;
+  const bound = boundDirectApprovalDetails(approvedRequest, marker);
+  if (!bound) {
+    return `Approved direct request ${toolName} must be replayed as a direct tool call.`;
+  }
+  if (!approvalRoutesMatch(bound.route, liveRoute)) {
+    return `Approved request ${toolName} was for a different connector resource.`;
   }
   return undefined;
 }

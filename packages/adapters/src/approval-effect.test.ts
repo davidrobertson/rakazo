@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   approvalPausedToolResult,
   approvalReplayPathError,
+  approvalReplayResourceError,
   approvedCatalogReplay,
   approvedReplayArgs,
+  boundDirectApprovalRequest,
   catalogApprovalDetails,
   catalogApprovalRequest,
   claimApprovedEffect,
@@ -117,7 +119,11 @@ describe("approved effect replay", () => {
 
   it("rejects cross-path replay when a catalog approval is invoked as a direct tool", () => {
     const marker = "__rakazoCatalogTool";
-    const direct = { text: "approved exactly" };
+    const direct = boundDirectApprovalRequest(
+      { connectorId: "installed", resourceId: "install-A", toolName: "notes.write" },
+      { text: "approved exactly" },
+      marker,
+    );
     const catalog = catalogApprovalRequest(
       "installed_execute_tool",
       { id: "install-A:notes.write", arguments: { text: "catalog" } },
@@ -127,17 +133,34 @@ describe("approved effect replay", () => {
     expect(approvalReplayPathError("notes.write", false, catalog, marker)).toMatch(
       /must be replayed via its catalog execute tool/,
     );
-    // Direct approval may be reached via catalog wrapper after the catalog grows.
     expect(approvalReplayPathError("notes.write", true, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", false, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", true, catalog, marker)).toBeUndefined();
   });
 
-  it("replays a direct approval through catalog resolve after catalog growth", () => {
+  it("replays a bound direct approval through catalog only on the same resource", () => {
     const marker = "__rakazoCatalogTool";
-    const approved = { text: "approved exactly", mode: "fast" };
-    const catalogResolved = { text: "model reconstructed via catalog", mode: "slow" };
-    expect(approvedReplayArgs(approved, catalogResolved, marker)).toEqual(approved);
+    const approved = boundDirectApprovalRequest(
+      { connectorId: "installed", resourceId: "install-A", toolName: "notes.write" },
+      { text: "approved exactly", mode: "fast" },
+      marker,
+    );
+    const same = { connectorId: "installed", resourceId: "install-A", toolName: "notes.write" };
+    const other = { connectorId: "installed", resourceId: "install-B", toolName: "notes.write" };
+
+    expect(
+      approvalReplayResourceError("notes.write", true, approved, same, marker),
+    ).toBeUndefined();
+    expect(approvalReplayResourceError("notes.write", true, approved, other, marker)).toMatch(
+      /different connector resource/,
+    );
+    expect(
+      approvalReplayResourceError("notes.write", true, { text: "legacy" }, same, marker),
+    ).toMatch(/must be replayed as a direct tool call/);
+    expect(approvedReplayArgs(approved, { text: "model" }, marker)).toEqual({
+      text: "approved exactly",
+      mode: "fast",
+    });
   });
 });
 
