@@ -1,0 +1,170 @@
+import type { ConnectorCall, ConnectorTool } from "@rakazo/adapter-kit";
+import { z } from "zod";
+
+export const DIRECT_TOOL_LIMIT = 20;
+export const TOOL_SEARCH_LIMIT = 10;
+export const SELECTED_SCHEMA_MAX_BYTES = 100_000;
+const MAX_QUERY_LENGTH = 200;
+const MAX_TOOL_NAME_LENGTH = 200;
+const MAX_TOOL_ID_LENGTH = 500;
+export const CATALOG_SEARCH = "__catalog_search";
+export const CATALOG_LOAD = "__catalog_load";
+export const CATALOG_EXECUTE = "__catalog_execute";
+
+type CatalogEntry = { id: string; tool: ConnectorTool };
+
+export function lazyCatalogTools(prefix: string, connectorId: string): ConnectorTool[] {
+  return [
+    {
+      name: `${prefix}_search_tools`,
+      description: `Search the connected ${prefix.toUpperCase()} tool catalog. Results contain IDs, names, and descriptions but not parameter schemas.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            maxLength: MAX_QUERY_LENGTH,
+            description: "Words describing the tool to find",
+          },
+          limit: { type: "integer", minimum: 1, maximum: TOOL_SEARCH_LIMIT },
+        },
+        required: ["query"],
+      },
+      readOnly: true,
+      route: { connectorId, toolName: CATALOG_SEARCH },
+    },
+    {
+      name: `${prefix}_load_tool`,
+      description: `Load the authoritative parameter schema for one ${prefix.toUpperCase()} tool returned by search.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            maxLength: MAX_TOOL_ID_LENGTH,
+            description: "Exact tool ID returned by search",
+          },
+        },
+        required: ["id"],
+      },
+      readOnly: true,
+      route: { connectorId, toolName: CATALOG_LOAD },
+    },
+    {
+      name: `${prefix}_execute_tool`,
+      description: `Execute one authorized ${prefix.toUpperCase()} tool after searching and loading its schema.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            maxLength: MAX_TOOL_ID_LENGTH,
+            description: "Exact tool ID returned by search",
+          },
+          arguments: { type: "object", description: "Arguments matching the loaded schema" },
+        },
+        required: ["id", "arguments"],
+      },
+      route: { connectorId, toolName: CATALOG_EXECUTE },
+    },
+  ];
+}
+
+export function catalogEntries(tools: ConnectorTool[]): CatalogEntry[] {
+  return tools
+    .map((tool) => ({ id: catalogEntryId(tool), tool }))
+    .filter(
+      ({ id, tool }) =>
+        id.length <= MAX_TOOL_ID_LENGTH &&
+        tool.name.length > 0 &&
+        tool.name.length <= MAX_TOOL_NAME_LENGTH,
+    );
+}
+
+export function searchCatalog(
+  entries: CatalogEntry[],
+  args: Record<string, unknown>,
+): Array<{ id: string; name: string; description: string; readOnly: boolean }> {
+  const query = String(args.query ?? "")
+    .slice(0, MAX_QUERY_LENGTH)
+    .trim()
+    .toLowerCase();
+  const requested = Number(args.limit ?? TOOL_SEARCH_LIMIT);
+  const limit = Number.isFinite(requested)
+    ? Math.max(1, Math.min(TOOL_SEARCH_LIMIT, Math.trunc(requested)))
+    : TOOL_SEARCH_LIMIT;
+  return entries
+    .map((entry) => ({ entry, score: catalogScore(entry, query) }))
+    .filter(({ score }) => !query || score < 4)
+    .sort(
+      (left, right) =>
+        left.score - right.score ||
+        left.entry.tool.name.localeCompare(right.entry.tool.name) ||
+        left.entry.id.localeCompare(right.entry.id),
+    )
+    .slice(0, limit)
+    .map(({ entry }) => ({
+      id: entry.id,
+      name: entry.tool.name,
+      description: entry.tool.description.slice(0, 500),
+      readOnly: entry.tool.readOnly === true,
+    }));
+}
+
+export function loadCatalogEntry(
+  entries: CatalogEntry[],
+  args: Record<string, unknown>,
+): CatalogEntry {
+  const id = String(args.id ?? "");
+  const entry = entries.find((candidate) => candidate.id === id);
+  if (!entry) throw new Error("Tool is unknown or not authorized for this bot");
+  const schemaBytes = Buffer.byteLength(JSON.stringify(entry.tool.inputSchema), "utf8");
+  if (schemaBytes > SELECTED_SCHEMA_MAX_BYTES) throw new Error("Tool schema is too large");
+  return entry;
+}
+
+export function resolveCatalogCall(
+  call: ConnectorCall,
+  entries: CatalogEntry[],
+): { call: ConnectorCall; tool: ConnectorTool } {
+  const entry = loadCatalogEntry(entries, call.args);
+  const args = call.args.arguments;
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new Error("Tool arguments must be an object");
+  }
+  let schema: z.ZodType;
+  try {
+    schema = z.fromJSONSchema(entry.tool.inputSchema as never);
+  } catch {
+    throw new Error("Tool schema is unsupported");
+  }
+  const parsed = schema.safeParse(args);
+  if (!parsed.success)
+    throw new Error(`Tool arguments are invalid: ${z.prettifyError(parsed.error)}`);
+  return {
+    tool: entry.tool,
+    call: {
+      ...call,
+      tool: entry.tool.name,
+      args: parsed.data as Record<string, unknown>,
+      route: entry.tool.route,
+    },
+  };
+}
+
+function catalogEntryId(tool: ConnectorTool): string {
+  const route = tool.route;
+  if (!route?.resourceId) return tool.name;
+  return `${route.resourceId}:${encodeURIComponent(route.toolName)}`;
+}
+
+function catalogScore(entry: CatalogEntry, query: string): number {
+  if (!query) return 0;
+  const name = entry.tool.name.toLowerCase();
+  const description = entry.tool.description.toLowerCase();
+  if (name === query) return 0;
+  if (name.startsWith(query)) return 1;
+  if (name.includes(query)) return 2;
+  if (description.includes(query)) return 3;
+  return 4;
+}

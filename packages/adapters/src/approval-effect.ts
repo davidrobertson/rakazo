@@ -9,6 +9,7 @@ export interface ApprovedEffectReplay {
 
 export interface ApprovedEffectReplayQueue {
   nextToolName(): string | undefined;
+  nextRequest(): Record<string, unknown> | undefined;
   take(toolName: string): Record<string, unknown> | undefined;
   assertDrained(): void;
 }
@@ -21,6 +22,12 @@ export function createApprovedEffectReplayQueue(
   return {
     nextToolName() {
       return pending[0]?.kind;
+    },
+    nextRequest() {
+      const request = pending[0]?.request;
+      return request && typeof request === "object" && !Array.isArray(request)
+        ? (request as Record<string, unknown>)
+        : undefined;
     },
     take(toolName) {
       const next = pending[0];
@@ -38,6 +45,22 @@ export function createApprovedEffectReplayQueue(
       }
     },
   };
+}
+
+export function approvedCatalogReplay(
+  queue: ApprovedEffectReplayQueue,
+  toolName: string,
+  marker: string,
+): { args?: Record<string, unknown>; error?: string } {
+  const pending = queue.nextRequest();
+  const approvedTool = pending?.[marker];
+  if (typeof approvedTool !== "string") return {};
+  if (approvedTool !== toolName) {
+    return { error: `Approved request ${approvedTool} must be replayed before ${toolName}.` };
+  }
+  const args = { ...pending };
+  delete args[marker];
+  return { args };
 }
 
 export function approvalPausedToolResult(): ApprovalPausedToolResult {

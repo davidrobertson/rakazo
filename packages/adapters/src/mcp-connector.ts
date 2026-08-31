@@ -7,6 +7,18 @@ import type {
 } from "@rakazo/adapter-kit";
 import { isLocalMcpHost } from "@rakazo/contracts";
 import type { McpServer, PrismaClient } from "@rakazo/db";
+import { sanitizeConnectorError } from "./connector-safety.js";
+import {
+  CATALOG_EXECUTE,
+  CATALOG_LOAD,
+  CATALOG_SEARCH,
+  catalogEntries,
+  DIRECT_TOOL_LIMIT,
+  lazyCatalogTools,
+  loadCatalogEntry,
+  resolveCatalogCall,
+  searchCatalog,
+} from "./lazy-tool-catalog.js";
 import type { McpOAuthBroker, OAuthMaterial } from "./mcp-oauth.js";
 import { McpSession } from "./mcp-transport.js";
 import type { RemoteTransportDependencies } from "./remote-mcp.js";
@@ -78,6 +90,19 @@ export class McpConnector implements ConnectorProvider {
   }
 
   async discoverTools(context: AdapterContext): Promise<ConnectorTool[]> {
+    const tools = await this.authorizedTools(context);
+    return tools.length > DIRECT_TOOL_LIMIT ? lazyCatalogTools("mcp", "mcp") : tools;
+  }
+
+  async resolveCall(
+    call: ConnectorCall,
+    context: AdapterContext,
+  ): Promise<{ call: ConnectorCall; tool: ConnectorTool } | undefined> {
+    if (call.route?.toolName !== CATALOG_EXECUTE) return undefined;
+    return resolveCatalogCall(call, catalogEntries(await this.authorizedTools(context)));
+  }
+
+  private async authorizedTools(context: AdapterContext): Promise<ConnectorTool[]> {
     if (!context.botId) return [];
     const assignments = await this.prisma.botMcpServer.findMany({
       where: {
@@ -114,7 +139,7 @@ export class McpConnector implements ConnectorProvider {
           // A single unavailable server must not hide tools from other connectors.
           console.error(
             `mcp discovery failed for server ${assignment.server.slug}:`,
-            error instanceof Error ? error.message : error,
+            sanitizeConnectorError(error),
           );
           await this.evict(this.sessionKey(assignment.server, context));
           return [];
@@ -125,7 +150,43 @@ export class McpConnector implements ConnectorProvider {
   }
 
   async *execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent> {
-    if (call.route?.connectorId !== "mcp" || !call.route.resourceId) {
+    if (call.route?.connectorId !== "mcp") {
+      yield { type: "error", message: `MCP route required for ${call.tool}` };
+      return;
+    }
+    if (
+      call.route.toolName === CATALOG_SEARCH ||
+      call.route.toolName === CATALOG_LOAD ||
+      call.route.toolName === CATALOG_EXECUTE
+    ) {
+      try {
+        const entries = catalogEntries(await this.authorizedTools(context));
+        if (call.route.toolName === CATALOG_SEARCH) {
+          yield { type: "result", data: { tools: searchCatalog(entries, call.args) } };
+          return;
+        }
+        if (call.route.toolName === CATALOG_LOAD) {
+          const entry = loadCatalogEntry(entries, call.args);
+          yield {
+            type: "result",
+            data: {
+              id: call.args.id,
+              name: entry.tool.name,
+              description: entry.tool.description,
+              inputSchema: entry.tool.inputSchema,
+              readOnly: entry.tool.readOnly === true,
+            },
+          };
+          return;
+        }
+        const resolved = resolveCatalogCall(call, entries);
+        yield* this.execute(resolved.call, context);
+      } catch (error) {
+        yield { type: "error", message: sanitizeConnectorError(error) };
+      }
+      return;
+    }
+    if (!call.route.resourceId) {
       yield { type: "error", message: `MCP route required for ${call.tool}` };
       return;
     }

@@ -1,6 +1,8 @@
+import type { ConnectorTool } from "@rakazo/adapter-kit";
 import { describe, expect, it } from "vitest";
-import { createApprovedEffectReplayQueue } from "./approval-effect.js";
+import { approvedCatalogReplay, createApprovedEffectReplayQueue } from "./approval-effect.js";
 import { APPROVED_EFFECT_REPLAY_ORDER, buildApprovalContinuation } from "./executor.js";
+import { catalogEntries, resolveCatalogCall } from "./lazy-tool-catalog.js";
 
 describe("executor approval replay", () => {
   it("lists and replays every approved request in FIFO order when a tool repeats", () => {
@@ -27,5 +29,68 @@ describe("executor approval replay", () => {
 
   it("uses a stable secondary key when approval timestamps match", () => {
     expect(APPROVED_EFFECT_REPLAY_ORDER).toEqual([{ createdAt: "asc" }, { id: "asc" }]);
+  });
+
+  it("replays an approved lazy tool through the exposed catalog executor", () => {
+    const continuation = buildApprovalContinuation(
+      [
+        {
+          kind: "mcp__demo__send_message",
+          request: {
+            id: "server-1:send_message",
+            arguments: { text: "approved exactly" },
+            __rakazoCatalogTool: "mcp_execute_tool",
+          },
+        },
+      ],
+      JSON.stringify,
+    );
+
+    expect(continuation).toContain(
+      'mcp_execute_tool: {"id":"server-1:send_message","arguments":{"text":"approved exactly"}}',
+    );
+    expect(continuation).not.toContain("__rakazoCatalogTool");
+  });
+
+  it("pins lazy approval replay to the approved source when tool names collide", () => {
+    const effects = [
+      {
+        kind: "delete_item",
+        request: {
+          id: "install-A:delete_item",
+          arguments: { target: "approved" },
+          __rakazoCatalogTool: "installed_execute_tool",
+        },
+      },
+    ];
+    const queue = createApprovedEffectReplayQueue(effects);
+    const replay = approvedCatalogReplay(queue, "installed_execute_tool", "__rakazoCatalogTool");
+    const modelRuntimeArgs = {
+      id: "install-B:delete_item",
+      arguments: { target: "model-reconstructed" },
+    };
+    const tools: ConnectorTool[] = ["install-A", "install-B"].map((resourceId) => ({
+      name: "delete_item",
+      description: "Delete one item",
+      inputSchema: {
+        type: "object",
+        properties: { target: { type: "string" } },
+        required: ["target"],
+      },
+      route: { connectorId: "installed", resourceId, toolName: "delete_item" },
+    }));
+
+    const resolved = resolveCatalogCall(
+      {
+        tool: "installed_execute_tool",
+        args: replay.args ?? modelRuntimeArgs,
+        executionId: "approved",
+        route: { connectorId: "installed", toolName: "__catalog_execute" },
+      },
+      catalogEntries(tools),
+    );
+
+    expect(resolved.call.route?.resourceId).toBe("install-A");
+    expect(resolved.call.args).toEqual({ target: "approved" });
   });
 });

@@ -13,6 +13,17 @@ import {
   sanitizeConnectorError,
 } from "./connector-safety.js";
 import {
+  CATALOG_EXECUTE,
+  CATALOG_LOAD,
+  CATALOG_SEARCH,
+  catalogEntries,
+  DIRECT_TOOL_LIMIT,
+  lazyCatalogTools,
+  loadCatalogEntry,
+  resolveCatalogCall,
+  searchCatalog,
+} from "./lazy-tool-catalog.js";
+import {
   assertSafeRemoteUrl,
   callRemoteMcpTool,
   createSafeRemoteFetch,
@@ -120,6 +131,19 @@ export class InstalledConnectorProvider implements ConnectorProvider {
   }
 
   async discoverTools(context: AdapterContext): Promise<ConnectorTool[]> {
+    const tools = await this.authorizedTools(context);
+    return tools.length > DIRECT_TOOL_LIMIT ? lazyCatalogTools("installed", "installed") : tools;
+  }
+
+  async resolveCall(
+    call: ConnectorCall,
+    context: AdapterContext,
+  ): Promise<{ call: ConnectorCall; tool: ConnectorTool } | undefined> {
+    if (call.route?.toolName !== CATALOG_EXECUTE) return undefined;
+    return resolveCatalogCall(call, catalogEntries(await this.authorizedTools(context)));
+  }
+
+  private async authorizedTools(context: AdapterContext): Promise<ConnectorTool[]> {
     const installs = await this.prisma.capabilityInstall.findMany({
       where: {
         spaceId: context.spaceId,
@@ -183,6 +207,39 @@ export class InstalledConnectorProvider implements ConnectorProvider {
   }
 
   async *execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent> {
+    if (
+      call.route?.connectorId === "installed" &&
+      (call.route.toolName === CATALOG_SEARCH ||
+        call.route.toolName === CATALOG_LOAD ||
+        call.route.toolName === CATALOG_EXECUTE)
+    ) {
+      try {
+        const entries = catalogEntries(await this.authorizedTools(context));
+        if (call.route.toolName === CATALOG_SEARCH) {
+          yield { type: "result", data: { tools: searchCatalog(entries, call.args) } };
+          return;
+        }
+        if (call.route.toolName === CATALOG_LOAD) {
+          const entry = loadCatalogEntry(entries, call.args);
+          yield {
+            type: "result",
+            data: {
+              id: call.args.id,
+              name: entry.tool.name,
+              description: entry.tool.description,
+              inputSchema: entry.tool.inputSchema,
+              readOnly: entry.tool.readOnly === true,
+            },
+          };
+          return;
+        }
+        const resolved = resolveCatalogCall(call, entries);
+        yield* this.execute(resolved.call, context);
+      } catch (error) {
+        yield { type: "error", message: sanitizeConnectorError(error) };
+      }
+      return;
+    }
     const installId = call.route?.resourceId;
     if (!installId) {
       yield { type: "error", message: "Installed connector route is missing" };

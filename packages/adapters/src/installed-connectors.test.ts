@@ -1,11 +1,99 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  InstalledConnectorProvider,
   importOpenApiDocument,
   prepareApiInstall,
   verifyMcpInstall,
 } from "./installed-connectors.js";
 
 describe("OpenAPI connector import", () => {
+  it("uses the bounded catalog for a real large installed OpenAPI source", async () => {
+    const install = {
+      id: "api-1",
+      kind: "api",
+      source: "https://api.example.test/v1",
+      secretId: null,
+      createdAt: new Date(0),
+      config: {
+        auth: { type: "none" },
+        operations: Array.from({ length: 21 }, (_, index) => ({
+          id: `operation_${String(index).padStart(2, "0")}`,
+          description: index === 20 ? "Read the final contact" : `Operation ${index}`,
+          method: "GET",
+          path: `/contacts/${index}`,
+          inputSchema: { type: "object", properties: { limit: { type: "integer" } } },
+          readOnly: true,
+        })),
+      },
+    };
+    const prisma = {
+      capabilityInstall: {
+        findMany: vi.fn().mockResolvedValue([install]),
+        findFirst: vi.fn().mockResolvedValue(install),
+      },
+    };
+    const provider = new InstalledConnectorProvider(prisma as never, {} as never);
+    const context = {
+      workspaceId: "workspace-1",
+      userId: "user-1",
+      signal: new AbortController().signal,
+    } as never;
+
+    const [search, load, execute] = await provider.discoverTools(context);
+
+    expect([search!.name, load!.name, execute!.name]).toEqual([
+      "installed_search_tools",
+      "installed_load_tool",
+      "installed_execute_tool",
+    ]);
+    expect(JSON.stringify([search, load, execute])).not.toContain("operation_20");
+    const events: unknown[] = [];
+    for await (const event of provider.execute(
+      {
+        tool: search!.name,
+        args: { query: "final contact" },
+        executionId: "search",
+        route: search!.route,
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      {
+        type: "result",
+        data: {
+          tools: [
+            {
+              id: "api-1:operation_20",
+              name: "operation_20",
+              description: "Read the final contact",
+              readOnly: true,
+            },
+          ],
+        },
+      },
+    ]);
+    await expect(
+      provider.resolveCall(
+        {
+          tool: execute!.name,
+          args: { id: "api-1:operation_20", arguments: { limit: 5 } },
+          executionId: "execute",
+          route: execute!.route,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      tool: { name: "operation_20", readOnly: true },
+      call: {
+        tool: "operation_20",
+        args: { limit: 5 },
+        route: { connectorId: "installed", resourceId: "api-1", toolName: "operation_20" },
+      },
+    });
+  });
+
   it("maps operation ids, parameters, and JSON bodies to bounded agent tools", () => {
     const imported = importOpenApiDocument({
       openapi: "3.1.0",
