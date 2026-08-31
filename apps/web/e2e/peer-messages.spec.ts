@@ -54,12 +54,34 @@ test("shows peer chips in transcript and opens view-only peer chat", async ({ pa
     .first();
   await expect(chip).toBeVisible({ timeout: 30_000 });
   await expect(chip.getByText(/Messaged|Message from/)).toBeVisible();
+  await expect(chip).toHaveAccessibleName(/Messaged Researcher|Message from Researcher/);
+  await expect(chip.locator(".rakazo-bot-avatar")).toBeVisible();
+  await expect(chip).not.toContainText("{peer}");
   // User bubble still contains the phrase; peer body must not appear outside the chip.
   await expect(chip).not.toContainText("peer-exchange-alpha");
   await expect(transcript.getByText("peer-exchange-alpha")).toHaveCount(1);
-  await captureScreenshot(page, testInfo, "peer-chip-in-thread");
+  const desktopTranscriptBox = await transcript.boundingBox();
+  const desktopChipBox = await chip.boundingBox();
+  expect(desktopTranscriptBox).not.toBeNull();
+  expect(desktopChipBox).not.toBeNull();
+  expect(desktopChipBox!.x).toBeLessThan(desktopTranscriptBox!.x + desktopTranscriptBox!.width / 3);
+  await expect(composer).toBeVisible();
+  await captureScreenshot(page, testInfo, "peer-chip-desktop");
 
-  await chip.getByRole("button", { name: /Messaged Researcher|Message from Researcher/ }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await chip.scrollIntoViewIfNeeded();
+  await expect(chip).toBeVisible();
+  await expect(composer).toBeVisible();
+  const mobileTranscriptBox = await transcript.boundingBox();
+  const mobileChipBox = await chip.boundingBox();
+  expect(mobileTranscriptBox).not.toBeNull();
+  expect(mobileChipBox).not.toBeNull();
+  expect(mobileChipBox!.x).toBeLessThan(mobileTranscriptBox!.x + mobileTranscriptBox!.width / 3);
+  await captureScreenshot(page, testInfo, "peer-chip-mobile");
+
+  await chip.focus();
+  await expect(chip).toBeFocused();
+  await chip.press("Enter");
   const view = page.getByTestId("peer-conversation-view");
   await expect(view).toBeVisible();
   await expect(view.getByRole("heading", { name: /Chief · Researcher/ })).toBeVisible();
