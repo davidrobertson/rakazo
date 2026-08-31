@@ -165,14 +165,16 @@ export function approvalRoutesMatch(
   left: BoundApprovalRoute | undefined,
   right: BoundApprovalRoute | undefined,
 ): boolean {
-  // Ignore resourceRevision: MCP OAuth refresh bumps revision without changing the
-  // approved connector resource/tool. Schema drift is caught by assertConnectorToolArgs.
+  // Match resourceRevision so OAuth reauthorization (which bumps mcpServer.revision)
+  // cannot replay an approval against a newly authenticated account. Quiet token
+  // refresh persists credentials without incrementing revision, so those stay valid.
   return Boolean(
     left &&
       right &&
       left.connectorId === right.connectorId &&
       left.resourceId === right.resourceId &&
-      left.toolName === right.toolName,
+      left.toolName === right.toolName &&
+      left.resourceRevision === right.resourceRevision,
   );
 }
 

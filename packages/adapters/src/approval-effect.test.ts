@@ -141,13 +141,35 @@ describe("approved effect replay", () => {
   it("replays a bound direct approval through catalog only on the same resource", () => {
     const marker = "__rakazoCatalogTool";
     const approved = boundDirectApprovalRequest(
-      { connectorId: "installed", resourceId: "install-A", toolName: "notes.write" },
+      {
+        connectorId: "installed",
+        resourceId: "install-A",
+        resourceRevision: 1,
+        toolName: "notes.write",
+      },
       { text: "approved exactly", mode: "fast" },
       marker,
     );
-    const same = { connectorId: "installed", resourceId: "install-A", toolName: "notes.write" };
-    const other = { connectorId: "installed", resourceId: "install-B", toolName: "notes.write" };
-    const changedRevision = {
+    const same = {
+      connectorId: "installed",
+      resourceId: "install-A",
+      resourceRevision: 1,
+      toolName: "notes.write",
+    };
+    const other = {
+      connectorId: "installed",
+      resourceId: "install-B",
+      resourceRevision: 1,
+      toolName: "notes.write",
+    };
+    // Quiet token refresh keeps revision; OAuth reauth increments it.
+    const quietRefresh = {
+      connectorId: "installed",
+      resourceId: "install-A",
+      resourceRevision: 1,
+      toolName: "notes.write",
+    };
+    const reauthorized = {
       connectorId: "installed",
       resourceId: "install-A",
       resourceRevision: 2,
@@ -166,10 +188,12 @@ describe("approved effect replay", () => {
     expect(approvalReplayResourceError("notes.write", false, approved, other, marker)).toMatch(
       /different connector resource/,
     );
-    // OAuth/session refresh may bump revision without changing the approved resource.
     expect(
-      approvalReplayResourceError("notes.write", false, approved, changedRevision, marker),
+      approvalReplayResourceError("notes.write", false, approved, quietRefresh, marker),
     ).toBeUndefined();
+    expect(
+      approvalReplayResourceError("notes.write", false, approved, reauthorized, marker),
+    ).toMatch(/different connector resource/);
     expect(
       approvalReplayResourceError("notes.write", true, { text: "legacy" }, same, marker),
     ).toMatch(/must be replayed as a direct tool call/);
