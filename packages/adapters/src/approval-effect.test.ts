@@ -8,7 +8,6 @@ import {
   approvedReplayArgs,
   boundDirectApprovalRequest,
   catalogApprovalDetails,
-  catalogApprovalMatchesLiveRoute,
   catalogApprovalRequest,
   claimApprovedEffect,
   claimIntendedEffect,
