@@ -443,6 +443,14 @@ async function persistLivePluginConnections(
 export const APPROVED_EFFECT_REPLAY_ORDER = [{ createdAt: "asc" as const }, { id: "asc" as const }];
 const CATALOG_APPROVAL_TOOL = "__rakazoCatalogTool";
 
+export function approvalReplayEffectToolName(
+  liveName: string,
+  approvedName: string | undefined,
+  sameBoundResource: boolean,
+): string {
+  return sameBoundResource && approvedName ? approvedName : liveName;
+}
+
 export function buildApprovalContinuation(
   approvedEffects: readonly { kind: string; request: unknown }[],
   formatRequest: (request: unknown) => string,
@@ -1301,7 +1309,11 @@ export function createRunExecutor(deps: ExecutorDeps) {
             };
           }
           // Drain FIFO only when the pending approval matches this path (catalog vs direct).
-          let replayEffectToolName = name;
+          const replayEffectToolName = approvalReplayEffectToolName(
+            name,
+            nextApprovedTool,
+            sameBoundResource,
+          );
           if (nextApprovedTool && (nextApprovedTool === name || sameBoundResource)) {
             const pathError = approvalReplayPathError(
               name,
@@ -1318,8 +1330,6 @@ export function createRunExecutor(deps: ExecutorDeps) {
               CATALOG_APPROVAL_TOOL,
             );
             if (resourceError) return { error: resourceError };
-            // Keep the original approved effect kind/key when collision uniquify renamed the live tool.
-            if (sameBoundResource) replayEffectToolName = nextApprovedTool;
             const approvedRequest = approvedEffectReplays.take(nextApprovedTool)!;
             // Catalog wrappers keep resolveCall's parsed args so Zod stripping/coercion
             // still matches the first-approval effect key and execute payload.

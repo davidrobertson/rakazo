@@ -8,7 +8,11 @@ import {
   catalogApprovalRequest,
   createApprovedEffectReplayQueue,
 } from "./approval-effect.js";
-import { APPROVED_EFFECT_REPLAY_ORDER, buildApprovalContinuation } from "./executor.js";
+import {
+  APPROVED_EFFECT_REPLAY_ORDER,
+  approvalReplayEffectToolName,
+  buildApprovalContinuation,
+} from "./executor.js";
 import {
   catalogEntries,
   disambiguateInstalledToolNames,
@@ -159,8 +163,12 @@ describe("executor approval replay", () => {
     const original = approvalEffectKey("run", "delete_item", args);
     const uniquified = approvalEffectKey("run", "installed__install-A__delete_item", args);
     expect(original).not.toBe(uniquified);
-    // Replay must key with the stored effect kind, not the live uniquified name.
-    expect(approvalEffectKey("run", "delete_item", args)).toBe(original);
+    const replayName = approvalReplayEffectToolName(
+      "installed__install-A__delete_item",
+      "delete_item",
+      true,
+    );
+    expect(approvalEffectKey("run", replayName, args)).toBe(original);
   });
 
   it("pins lazy approval replay to the approved source when tool names collide", () => {
