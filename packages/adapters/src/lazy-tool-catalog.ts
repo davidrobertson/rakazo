@@ -152,7 +152,7 @@ export function resolveCatalogCall(
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new Error("Tool arguments must be an object");
   }
-  const parsed = parseConnectorToolArgs(entry.tool.inputSchema, args);
+  const parsed = parseConnectorToolArgs(entry.tool.inputSchema, args as Record<string, unknown>);
   return {
     tool: entry.tool,
     call: {
