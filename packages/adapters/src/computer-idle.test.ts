@@ -190,12 +190,19 @@ describe("background work launch and probe", () => {
     async () => {
       const databaseId = "computer-db-id";
       const providerRef = "provider-ref";
-      markers.add(`/tmp/rakazo-background-${databaseId}`);
-      markers.add(`/tmp/rakazo-background-${providerRef}`);
+      const launchId = "active";
+      markers.add(`/tmp/rakazo-background-${databaseId}-${launchId}`);
 
       const launched = spawn(
         "bash",
-        ["-c", BACKGROUND_WORK_LAUNCH, "rakazo-background-launch", databaseId, "exec sleep 30"],
+        [
+          "-c",
+          BACKGROUND_WORK_LAUNCH,
+          "rakazo-background-launch",
+          databaseId,
+          launchId,
+          "exec sleep 30",
+        ],
         { stdio: "ignore" },
       );
       children.push(launched);
@@ -207,21 +214,38 @@ describe("background work launch and probe", () => {
   );
 
   it.skipIf(process.platform === "win32")(
-    "keeps the shared marker after work becomes idle",
+    "cleans a completed marker without blocking a later launch",
     async () => {
       const markerId = "computer-relaunch-id";
-      const marker = `/tmp/rakazo-background-${markerId}`;
-      markers.add(marker);
-      const launched = spawn(
+      const completedMarker = `/tmp/rakazo-background-${markerId}-completed`;
+      const activeMarker = `/tmp/rakazo-background-${markerId}-active`;
+      markers.add(completedMarker);
+      markers.add(activeMarker);
+      const completed = spawn(
         "bash",
-        ["-c", BACKGROUND_WORK_LAUNCH, "rakazo-background-launch", markerId, "true"],
+        ["-c", BACKGROUND_WORK_LAUNCH, "rakazo-background-launch", markerId, "completed", "true"],
         { stdio: "ignore" },
       );
-      children.push(launched);
+      children.push(completed);
 
-      expect(await processExit(launched)).toBe(0);
+      expect(await processExit(completed)).toBe(0);
       expect(await probeBackgroundWork(markerId)).toBe(1);
-      expect(existsSync(marker)).toBe(true);
+      expect(existsSync(completedMarker)).toBe(false);
+
+      const active = spawn(
+        "bash",
+        [
+          "-c",
+          BACKGROUND_WORK_LAUNCH,
+          "rakazo-background-launch",
+          markerId,
+          "active",
+          "exec sleep 30",
+        ],
+        { stdio: "ignore" },
+      );
+      children.push(active);
+      await expect.poll(() => probeBackgroundWork(markerId)).toBe(0);
     },
   );
 
@@ -229,14 +253,21 @@ describe("background work launch and probe", () => {
     "does not run the command when its marker cannot be opened",
     async () => {
       const markerId = "computer-marker-error";
-      const marker = `/tmp/rakazo-background-${markerId}`;
+      const marker = `/tmp/rakazo-background-${markerId}-collision`;
       const commandRan = `/tmp/rakazo-background-command-ran-${markerId}`;
       markers.add(marker);
       markers.add(commandRan);
       mkdirSync(marker);
       const launched = spawn(
         "bash",
-        ["-c", BACKGROUND_WORK_LAUNCH, "rakazo-background-launch", markerId, `touch ${commandRan}`],
+        [
+          "-c",
+          BACKGROUND_WORK_LAUNCH,
+          "rakazo-background-launch",
+          markerId,
+          "collision",
+          `touch ${commandRan}`,
+        ],
         { stdio: "ignore" },
       );
       children.push(launched);
@@ -250,14 +281,21 @@ describe("background work launch and probe", () => {
     "does not follow a pre-existing marker symlink",
     async () => {
       const markerId = "computer-marker-symlink";
-      const marker = `/tmp/rakazo-background-${markerId}`;
+      const marker = `/tmp/rakazo-background-${markerId}-collision`;
       const commandRan = `/tmp/rakazo-background-command-ran-${markerId}`;
       markers.add(marker);
       markers.add(commandRan);
       symlinkSync(commandRan, marker);
       const launched = spawn(
         "bash",
-        ["-c", BACKGROUND_WORK_LAUNCH, "rakazo-background-launch", markerId, `touch ${commandRan}`],
+        [
+          "-c",
+          BACKGROUND_WORK_LAUNCH,
+          "rakazo-background-launch",
+          markerId,
+          "collision",
+          `touch ${commandRan}`,
+        ],
         { stdio: "ignore" },
       );
       children.push(launched);
