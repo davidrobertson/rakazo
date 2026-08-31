@@ -1090,6 +1090,9 @@ export function createRunExecutor(deps: ExecutorDeps) {
             .filter((tool) => tool.route)
             .map((tool) => [tool.name, tool.route!] as const),
         );
+        const connectorSchemas = new Map(
+          exposedConnectorTools.map((tool) => [tool.name, tool.inputSchema] as const),
+        );
         const readOnlyConnectorTools = new Set(
           exposedConnectorTools.filter((tool) => tool.readOnly).map((tool) => tool.name),
         );
@@ -1335,17 +1338,16 @@ export function createRunExecutor(deps: ExecutorDeps) {
             // Catalog wrappers keep resolveCall's parsed args so Zod stripping/coercion
             // still matches the first-approval effect key and execute payload.
             args = approvedReplayArgs(approvedRequest, args, CATALOG_APPROVAL_TOOL);
-            // Bound direct approvals resume with persisted args that skipped the catalog
-            // parse above — reject before execute if they no longer match the live schema.
-            if (
-              catalogRemapped &&
-              resolvedToolSchema &&
-              boundDirectApprovalDetails(approvedRequest, CATALOG_APPROVAL_TOOL)
-            ) {
-              try {
-                assertConnectorToolArgs(resolvedToolSchema, args);
-              } catch (error) {
-                return { error: sanitizeConnectorError(error) };
+            // Bound direct approvals resume with persisted args that may skip catalog
+            // parse — reject before execute if they no longer match the live schema.
+            if (boundDirectApprovalDetails(approvedRequest, CATALOG_APPROVAL_TOOL)) {
+              const liveSchema = resolvedToolSchema ?? connectorSchemas.get(name);
+              if (liveSchema) {
+                try {
+                  assertConnectorToolArgs(liveSchema, args);
+                } catch (error) {
+                  return { error: sanitizeConnectorError(error) };
+                }
               }
             }
           }

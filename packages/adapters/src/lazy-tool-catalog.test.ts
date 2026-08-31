@@ -171,7 +171,8 @@ describe("lazy tool catalog", () => {
         catalogGroup: "huge",
       },
     }));
-    const result = searchCatalog(catalogEntries(oversized), { group: "huge" });
+    const entries = catalogEntries(oversized);
+    const result = searchCatalog(entries, { group: "huge" });
     expect(result).toEqual({
       group: "huge",
       count: NAME_INDEX_MAX_NAMES + 5,
@@ -179,6 +180,8 @@ describe("lazy tool catalog", () => {
     });
     expect(JSON.stringify(result)).not.toContain("secretShape");
     expect(JSON.stringify(result)).not.toContain("tool_0");
+    const searched = searchCatalog(entries, { group: "huge", query: "tool_0" });
+    expect("tools" in searched && searched.tools.map((item) => item.name)).toEqual(["tool_0"]);
   });
 
   it("returns groups with counts when the name index exceeds budget", () => {
