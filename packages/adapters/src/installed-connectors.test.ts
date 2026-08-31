@@ -1,4 +1,10 @@
+import { approvalEffectKey } from "@rakazo/core/node/approval-effect-key";
 import { describe, expect, it, vi } from "vitest";
+import {
+  approvedCatalogReplay,
+  approvedReplayArgs,
+  createApprovedEffectReplayQueue,
+} from "./approval-effect.js";
 import {
   InstalledConnectorProvider,
   importOpenApiDocument,
@@ -92,6 +98,84 @@ describe("OpenAPI connector import", () => {
         route: { connectorId: "installed", resourceId: "api-1", toolName: "operation_20" },
       },
     });
+  });
+
+  it("executes an approved lazy call with authoritative normalized arguments", async () => {
+    const install = {
+      id: "api-approved",
+      kind: "api",
+      source: "https://93.184.216.34",
+      secretId: null,
+      createdAt: new Date(0),
+      config: {
+        auth: { type: "none" },
+        operations: Array.from({ length: 21 }, (_, index) => ({
+          id: `operation_${index}`,
+          method: index === 20 ? "POST" : "GET",
+          path: `/items/${index}`,
+          inputSchema:
+            index === 20
+              ? {
+                  type: "object",
+                  properties: { count: { type: "integer", default: 3 } },
+                  additionalProperties: false,
+                }
+              : { type: "object" },
+        })),
+      },
+    };
+    const prisma = {
+      capabilityInstall: {
+        findMany: vi.fn().mockResolvedValue([install]),
+        findFirst: vi.fn().mockResolvedValue(install),
+      },
+    };
+    let requestBody: unknown;
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      requestBody = JSON.parse(await request.text());
+      return Response.json({ ok: true });
+    });
+    const provider = new InstalledConnectorProvider(prisma as never, {} as never, { fetch });
+    const context = {
+      workspaceId: "workspace-1",
+      userId: "user-1",
+      signal: new AbortController().signal,
+    } as never;
+    const execute = (await provider.discoverTools(context))[2]!;
+    const marker = "__rakazoCatalogTool";
+    const approvedRequest = {
+      id: "api-approved:operation_20",
+      arguments: {},
+      [marker]: execute.name,
+    };
+    const queue = createApprovedEffectReplayQueue([
+      { kind: "operation_20", request: approvedRequest },
+    ]);
+    const replay = approvedCatalogReplay(queue, execute.name, marker);
+    const resolved = await provider.resolveCall(
+      {
+        tool: execute.name,
+        args: replay.args!,
+        executionId: "approved",
+        route: execute.route,
+      },
+      context,
+    );
+    const args = approvedReplayArgs(queue.take(resolved!.tool.name)!, resolved!.call.args, marker);
+    const events = [];
+
+    for await (const event of provider.execute({ ...resolved!.call, args }, context)) {
+      events.push(event);
+    }
+
+    expect(args).toEqual({ count: 3 });
+    expect(approvalEffectKey("run", resolved!.tool.name, args)).toBe(
+      approvalEffectKey("run", resolved!.tool.name, resolved!.call.args),
+    );
+    expect(requestBody).toEqual({ count: 3 });
+    expect(events).toEqual([{ type: "result", data: { status: 200, data: { ok: true } } }]);
+    expect(queue.assertDrained).not.toThrow();
   });
 
   it("executes an installed API operation whose id matches a catalog control", async () => {
