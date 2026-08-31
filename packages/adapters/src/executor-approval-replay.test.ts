@@ -92,8 +92,10 @@ describe("executor approval replay", () => {
         {
           kind: "notes.write",
           request: {
+            id: "row-1",
+            arguments: { mode: "strict" },
             text: "approved exactly",
-            __rakazoCatalogTool: "not-a-wrapper",
+            __rakazoCatalogTool: "installed_execute_tool",
           },
         },
       ],
@@ -101,7 +103,7 @@ describe("executor approval replay", () => {
     );
 
     expect(continuation).toContain(
-      'notes.write: {"text":"approved exactly","__rakazoCatalogTool":"not-a-wrapper"}',
+      'notes.write: {"id":"row-1","arguments":{"mode":"strict"},"text":"approved exactly","__rakazoCatalogTool":"installed_execute_tool"}',
     );
   });
 

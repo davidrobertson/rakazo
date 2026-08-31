@@ -57,10 +57,14 @@ describe("approved effect replay", () => {
   it("does not treat a direct-tool arg named like the catalog marker as a catalog replay", () => {
     const marker = "__rakazoCatalogTool";
     const approved = {
+      id: "row-1",
+      arguments: { mode: "strict" },
       text: "approved exactly",
       [marker]: "looks-like-a-wrapper-but-is-an-arg",
     };
     const reconstructed = {
+      id: "row-1",
+      arguments: { mode: "model-changed" },
       text: "model reconstructed",
       [marker]: "looks-like-a-wrapper-but-is-an-arg",
     };
