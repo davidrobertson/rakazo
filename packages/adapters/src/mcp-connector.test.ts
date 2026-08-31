@@ -255,7 +255,10 @@ describe("MCP connector session cache", () => {
           index: [
             {
               group: "demo",
-              names: Array.from({ length: 30 }, (_, index) => `tool_${String(index).padStart(2, "0")}`),
+              names: Array.from(
+                { length: 30 },
+                (_, index) => `tool_${String(index).padStart(2, "0")}`,
+              ),
             },
           ],
         },

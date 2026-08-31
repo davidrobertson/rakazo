@@ -127,7 +127,11 @@ export function catalogEntries(tools: ConnectorTool[]): CatalogEntry[] {
     );
 }
 
-export function catalogGroupLabel(name: string | null | undefined, kind: string, id: string): string {
+export function catalogGroupLabel(
+  name: string | null | undefined,
+  kind: string,
+  id: string,
+): string {
   const trimmed = name?.trim();
   if (trimmed) return trimmed.slice(0, MAX_GROUP_LENGTH);
   const shortId = id.slice(0, 8) || "unknown";
@@ -315,15 +319,11 @@ export function disambiguateInstalledToolNames(tools: ConnectorTool[]): Connecto
   });
 }
 
-export function formatNameIndexText(
-  groups: Array<{ group: string; names: string[] }>,
-): string {
+export function formatNameIndexText(groups: Array<{ group: string; names: string[] }>): string {
   return groups.map(({ group, names }) => `${group}:\n  ${names.join(", ")}`).join("\n");
 }
 
-export function fitsNameIndexBudget(
-  groups: Array<{ group: string; names: string[] }>,
-): boolean {
+export function fitsNameIndexBudget(groups: Array<{ group: string; names: string[] }>): boolean {
   const nameCount = groups.reduce((total, group) => total + group.names.length, 0);
   if (nameCount > NAME_INDEX_MAX_NAMES) return false;
   return Buffer.byteLength(formatNameIndexText(groups), "utf8") <= NAME_INDEX_MAX_BYTES;

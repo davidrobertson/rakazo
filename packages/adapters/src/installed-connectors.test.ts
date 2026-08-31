@@ -103,8 +103,9 @@ describe("OpenAPI connector import", () => {
           index: [
             {
               group: "Contacts API",
-              names: Array.from({ length: 21 }, (_, index) =>
-                `operation_${String(index).padStart(2, "0")}`,
+              names: Array.from(
+                { length: 21 },
+                (_, index) => `operation_${String(index).padStart(2, "0")}`,
               ),
             },
           ],

@@ -101,9 +101,11 @@ describe("lazy tool catalog", () => {
     expect(tools(DIRECT_TOOL_LIMIT)).toHaveLength(20);
     expect(tools(DIRECT_TOOL_LIMIT + 1)).toHaveLength(21);
     expect(lazyCatalogTools("mcp", "mcp", "MCP")).toHaveLength(3);
-    expect(
-      lazyCatalogTools("installed", "installed", "API").map((tool) => tool.name),
-    ).toEqual(["installed_search_tools", "installed_load_tool", "installed_execute_tool"]);
+    expect(lazyCatalogTools("installed", "installed", "API").map((tool) => tool.name)).toEqual([
+      "installed_search_tools",
+      "installed_load_tool",
+      "installed_execute_tool",
+    ]);
     expect(lazyCatalogTools("mcp", "mcp", "MCP").map((tool) => tool.name)).toEqual([
       "mcp_search_tools",
       "mcp_load_tool",
@@ -184,8 +186,16 @@ describe("lazy tool catalog", () => {
 
   it("filters query search by group and keeps schema-free hits", () => {
     const catalog = tools(25, "alpha").concat(tools(5, "beta"));
-    const first = searchCatalog(catalogEntries(catalog), { query: "shared", group: "beta", limit: 100 });
-    const second = searchCatalog(catalogEntries(catalog), { query: "shared", group: "beta", limit: 100 });
+    const first = searchCatalog(catalogEntries(catalog), {
+      query: "shared",
+      group: "beta",
+      limit: 100,
+    });
+    const second = searchCatalog(catalogEntries(catalog), {
+      query: "shared",
+      group: "beta",
+      limit: 100,
+    });
 
     expect(first).toEqual(second);
     expect("tools" in first && first.tools).toHaveLength(5);
