@@ -354,7 +354,17 @@ describe("answerRunInput", () => {
       message: {
         findFirst: vi.fn().mockResolvedValue({
           id: "message-1",
-          blocks: [{ kind: "ask", text: "Which city?", status: "pending" }],
+          blocks: [
+            {
+              kind: "ask",
+              text: "Which city?",
+              status: "pending",
+              actions: [
+                { id: "choice-1", label: "Berlin" },
+                { id: "choice-2", label: "Paris" },
+              ],
+            },
+          ],
         }),
         update: vi.fn().mockResolvedValue({ id: "message-1" }),
       },
@@ -390,7 +400,7 @@ describe("answerRunInput", () => {
           runId: "run-1",
           messageId: "message-1",
           answeredByUserId: "user-1",
-          answer: "Paris",
+          answer: "choice-2",
         },
         fanout,
       ),
@@ -405,8 +415,23 @@ describe("answerRunInput", () => {
     expect(tx.message.update).toHaveBeenCalledWith({
       where: { id: "message-1" },
       data: {
-        blocks: [{ kind: "ask", text: "Which city?", status: "answered", answer: "Paris" }],
+        blocks: [
+          {
+            kind: "ask",
+            text: "Which city?",
+            status: "answered",
+            answer: "choice-2",
+            actions: [
+              { id: "choice-1", label: "Berlin" },
+              { id: "choice-2", label: "Paris" },
+            ],
+          },
+        ],
       },
+    });
+    expect(tx.task.updateMany).toHaveBeenCalledWith({
+      where: { runs: { some: { id: "run-1" } } },
+      data: { prompt: "Paris" },
     });
     expect(tx.event.create).toHaveBeenCalledWith(
       expect.objectContaining({

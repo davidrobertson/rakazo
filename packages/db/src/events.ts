@@ -414,7 +414,10 @@ export async function answerRunInput(
     const approvalAsk = isApprovalAskBlock(pendingAsk);
     const secretAsk = isSecretAskBlock(pendingAsk);
     const choiceAsk = !approvalAsk && !secretAsk && Boolean(pendingAsk.actions?.length);
-    if (choiceAsk && !pendingAsk.actions?.some((action) => action.id === input.answer)) return null;
+    const selectedChoice = choiceAsk
+      ? pendingAsk.actions?.find((action) => action.id === input.answer)
+      : undefined;
+    if (choiceAsk && !selectedChoice) return null;
     if (secretAsk && !runSecretWriter) return null;
     let approvalEffect: { id: string; kind: string } | null = null;
     let approvalUserId: string | null = null;
@@ -494,7 +497,7 @@ export async function answerRunInput(
     } else {
       const task = await tx.task.updateMany({
         where: { runs: { some: { id: input.runId } } },
-        data: { prompt: input.answer },
+        data: { prompt: selectedChoice?.label ?? input.answer },
       });
       if (task.count !== 1) throw new Error("Run task was not available to answer");
     }
