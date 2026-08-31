@@ -180,6 +180,8 @@ export interface ConnectorRoute {
   toolName: string;
   resourceId?: string;
   resourceRevision?: string | number;
+  /** Source label for lazy catalog name indexes. Never exposed as a model schema field. */
+  catalogGroup?: string;
 }
 
 export interface ConnectorCall {

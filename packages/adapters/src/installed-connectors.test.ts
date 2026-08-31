@@ -18,6 +18,7 @@ describe("OpenAPI connector import", () => {
     const install = {
       id: "api-1",
       kind: "api",
+      name: "Contacts API",
       source: "https://api.example.test/v1",
       secretId: null,
       createdAt: new Date(0),
@@ -53,7 +54,9 @@ describe("OpenAPI connector import", () => {
       "installed_load_tool",
       "installed_execute_tool",
     ]);
-    expect(JSON.stringify([search, load, execute])).not.toContain("operation_20");
+    // Names may appear in the search description index; operation schemas must not.
+    expect(JSON.stringify([search, load, execute])).not.toContain("/contacts/");
+    expect(search!.description).toContain("operation_20");
     const events: unknown[] = [];
     for await (const event of provider.execute(
       {
@@ -81,6 +84,36 @@ describe("OpenAPI connector import", () => {
         },
       },
     ]);
+    const listed: unknown[] = [];
+    for await (const event of provider.execute(
+      {
+        tool: search!.name,
+        args: {},
+        executionId: "list",
+        route: search!.route,
+      },
+      context,
+    )) {
+      listed.push(event);
+    }
+    expect(listed).toEqual([
+      {
+        type: "result",
+        data: {
+          index: [
+            {
+              group: "Contacts API",
+              names: Array.from({ length: 21 }, (_, index) =>
+                `operation_${String(index).padStart(2, "0")}`,
+              ),
+            },
+          ],
+        },
+      },
+    ]);
+    expect(JSON.stringify(listed)).not.toContain("inputSchema");
+    expect(search!.description).toContain("Contacts API:");
+    expect(search!.description).toContain("operation_00");
     await expect(
       provider.resolveCall(
         {

@@ -89,7 +89,8 @@ export class McpConnector implements ConnectorProvider {
 
   async discoverTools(context: AdapterContext): Promise<ConnectorTool[]> {
     const tools = await this.authorizedTools(context);
-    return tools.length > DIRECT_TOOL_LIMIT ? lazyCatalogTools("mcp", "mcp", "MCP") : tools;
+    if (tools.length <= DIRECT_TOOL_LIMIT) return tools;
+    return lazyCatalogTools("mcp", "mcp", "MCP", catalogEntries(tools));
   }
 
   async resolveCall(
@@ -133,6 +134,7 @@ export class McpConnector implements ConnectorProvider {
                 resourceId: assignment.serverId,
                 resourceRevision: assignment.server.revision,
                 toolName: tool.name,
+                catalogGroup: assignment.server.slug,
               },
             }));
         } catch (error) {

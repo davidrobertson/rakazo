@@ -242,6 +242,45 @@ describe("MCP connector session cache", () => {
     ]);
     expect(JSON.stringify(searched)).not.toContain("inputSchema");
 
+    const indexed = await collect({
+      tool: search!.name,
+      args: {},
+      executionId: "index",
+      route: search!.route,
+    });
+    expect(indexed).toEqual([
+      {
+        type: "result",
+        data: {
+          index: [
+            {
+              group: "demo",
+              names: Array.from({ length: 30 }, (_, index) => `tool_${String(index).padStart(2, "0")}`),
+            },
+          ],
+        },
+      },
+    ]);
+    expect(JSON.stringify(indexed)).not.toContain("inputSchema");
+    expect(search!.description).toContain("demo:");
+    expect(search!.description).toContain("tool_00");
+
+    const expanded = await collect({
+      tool: search!.name,
+      args: { group: "demo" },
+      executionId: "group",
+      route: search!.route,
+    });
+    expect(expanded).toEqual([
+      {
+        type: "result",
+        data: {
+          group: "demo",
+          names: Array.from({ length: 30 }, (_, index) => `tool_${String(index).padStart(2, "0")}`),
+        },
+      },
+    ]);
+
     const loaded = await collect({
       tool: load!.name,
       args: { id: "server-1:tool_29" },

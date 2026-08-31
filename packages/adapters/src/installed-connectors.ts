@@ -15,6 +15,7 @@ import {
 import {
   CATALOG_EXECUTE,
   catalogEntries,
+  catalogGroupLabel,
   DIRECT_TOOL_LIMIT,
   disambiguateInstalledToolNames,
   executeLazyCatalogControl,
@@ -106,6 +107,7 @@ type ApiOperation = z.infer<typeof ApiOperationSchema>;
 type InstalledRow = {
   id: string;
   kind: string;
+  name: string;
   source: string;
   secretId: string | null;
   config: unknown;
@@ -131,9 +133,8 @@ export class InstalledConnectorProvider implements ConnectorProvider {
 
   async discoverTools(context: AdapterContext): Promise<ConnectorTool[]> {
     const tools = await this.authorizedTools(context);
-    return tools.length > DIRECT_TOOL_LIMIT
-      ? lazyCatalogTools("installed", "installed", "API")
-      : tools;
+    if (tools.length <= DIRECT_TOOL_LIMIT) return tools;
+    return lazyCatalogTools("installed", "installed", "API", catalogEntries(tools));
   }
 
   async resolveCall(
@@ -168,6 +169,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
     install: InstalledRow,
     context: AdapterContext,
   ): Promise<ConnectorTool[]> {
+    const catalogGroup = catalogGroupLabel(install.name, install.kind, install.id);
     try {
       if (install.kind === "mcp") {
         const config = McpConfigSchema.parse(install.config);
@@ -185,6 +187,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
             connectorId: "installed",
             resourceId: install.id,
             toolName: tool.name,
+            catalogGroup,
           },
         }));
       }
@@ -199,6 +202,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
             connectorId: "installed",
             resourceId: install.id,
             toolName: operation.id,
+            catalogGroup,
           },
         }));
       }

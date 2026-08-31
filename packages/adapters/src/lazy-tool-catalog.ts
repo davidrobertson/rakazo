@@ -9,7 +9,10 @@ import { z } from "zod";
 export const DIRECT_TOOL_LIMIT = 20;
 export const TOOL_SEARCH_LIMIT = 10;
 export const SELECTED_SCHEMA_MAX_BYTES = 100_000;
+export const NAME_INDEX_MAX_NAMES = 200;
+export const NAME_INDEX_MAX_BYTES = 2_048;
 const MAX_QUERY_LENGTH = 200;
+const MAX_GROUP_LENGTH = 200;
 const MAX_TOOL_NAME_LENGTH = 200;
 const MAX_TOOL_ID_LENGTH = 500;
 const MAX_DESCRIPTION_LENGTH = 500;
@@ -17,28 +20,51 @@ export const CATALOG_SEARCH = "__catalog_search";
 export const CATALOG_LOAD = "__catalog_load";
 export const CATALOG_EXECUTE = "__catalog_execute";
 
-type CatalogEntry = { id: string; tool: ConnectorTool };
+type CatalogEntry = { id: string; tool: ConnectorTool; group: string };
+
+export type CatalogSearchHit = {
+  id: string;
+  name: string;
+  description: string;
+  readOnly: boolean;
+};
+
+export type CatalogSearchResult =
+  | { tools: CatalogSearchHit[] }
+  | { index: Array<{ group: string; names: string[] }> }
+  | { groups: Array<{ group: string; count: number }>; hint: string }
+  | { group: string; names: string[]; error?: string };
 
 export function lazyCatalogTools(
   prefix: string,
   connectorId: string,
   label: string,
+  entries: CatalogEntry[] = [],
 ): ConnectorTool[] {
+  const indexText = formatNameIndexText(groupedNames(entries));
+  const embedIndex = indexText.length > 0 && fitsNameIndexBudget(groupedNames(entries));
+  const searchDescription = embedIndex
+    ? `Search connected ${label} tools. Empty query lists names by source. Pass group to expand one source.\n${indexText}`
+    : `Search connected ${label} tools. Empty query lists sources. Pass group to list names in one source, or query to search.`;
   return [
     {
       name: `${prefix}_search_tools`,
-      description: `Search connected ${label} tools.`,
+      description: searchDescription,
       inputSchema: {
         type: "object",
         properties: {
           query: {
             type: "string",
             maxLength: MAX_QUERY_LENGTH,
-            description: "Words describing the tool to find",
+            description: "Words describing the tool to find. Omit to list names by source.",
+          },
+          group: {
+            type: "string",
+            maxLength: MAX_GROUP_LENGTH,
+            description: "Source name to list or search within",
           },
           limit: { type: "integer", minimum: 1, maximum: TOOL_SEARCH_LIMIT },
         },
-        required: ["query"],
       },
       readOnly: true,
       route: { connectorId, toolName: CATALOG_SEARCH },
@@ -92,7 +118,7 @@ export function isLazyCatalogControlRoute(route: ConnectorRoute | undefined): bo
 
 export function catalogEntries(tools: ConnectorTool[]): CatalogEntry[] {
   return tools
-    .map((tool) => ({ id: catalogEntryId(tool), tool }))
+    .map((tool) => ({ id: catalogEntryId(tool), tool, group: catalogGroupOf(tool) }))
     .filter(
       ({ id, tool }) =>
         id.length <= MAX_TOOL_ID_LENGTH &&
@@ -101,34 +127,74 @@ export function catalogEntries(tools: ConnectorTool[]): CatalogEntry[] {
     );
 }
 
+export function catalogGroupLabel(name: string | null | undefined, kind: string, id: string): string {
+  const trimmed = name?.trim();
+  if (trimmed) return trimmed.slice(0, MAX_GROUP_LENGTH);
+  const shortId = id.slice(0, 8) || "unknown";
+  return `${kind}-${shortId}`.slice(0, MAX_GROUP_LENGTH);
+}
+
 export function searchCatalog(
   entries: CatalogEntry[],
   args: Record<string, unknown>,
-): Array<{ id: string; name: string; description: string; readOnly: boolean }> {
+): CatalogSearchResult {
   const query = String(args.query ?? "")
     .slice(0, MAX_QUERY_LENGTH)
     .trim()
     .toLowerCase();
+  const groupFilter = String(args.group ?? "")
+    .slice(0, MAX_GROUP_LENGTH)
+    .trim();
+  const scoped = groupFilter
+    ? entries.filter((entry) => entry.group.toLowerCase() === groupFilter.toLowerCase())
+    : entries;
+
+  if (!query) {
+    if (groupFilter) {
+      if (scoped.length === 0) {
+        return {
+          group: groupFilter,
+          names: [],
+          error: "Unknown or empty group",
+        };
+      }
+      return {
+        group: scoped[0]!.group,
+        names: listNames(scoped),
+      };
+    }
+    const grouped = groupedNames(scoped);
+    if (!fitsNameIndexBudget(grouped)) {
+      return {
+        groups: grouped.map(({ group, names }) => ({ group, count: names.length })),
+        hint: "Pass group to list names in one source.",
+      };
+    }
+    return { index: grouped };
+  }
+
   const requested = Number(args.limit ?? TOOL_SEARCH_LIMIT);
   const limit = Number.isFinite(requested)
     ? Math.max(1, Math.min(TOOL_SEARCH_LIMIT, Math.trunc(requested)))
     : TOOL_SEARCH_LIMIT;
-  return entries
-    .map((entry) => ({ entry, score: catalogScore(entry, query) }))
-    .filter(({ score }) => !query || score < 4)
-    .sort(
-      (left, right) =>
-        left.score - right.score ||
-        left.entry.tool.name.localeCompare(right.entry.tool.name) ||
-        left.entry.id.localeCompare(right.entry.id),
-    )
-    .slice(0, limit)
-    .map(({ entry }) => ({
-      id: entry.id,
-      name: entry.tool.name,
-      description: entry.tool.description.slice(0, MAX_DESCRIPTION_LENGTH),
-      readOnly: entry.tool.readOnly === true,
-    }));
+  return {
+    tools: scoped
+      .map((entry) => ({ entry, score: catalogScore(entry, query) }))
+      .filter(({ score }) => score < 4)
+      .sort(
+        (left, right) =>
+          left.score - right.score ||
+          left.entry.tool.name.localeCompare(right.entry.tool.name) ||
+          left.entry.id.localeCompare(right.entry.id),
+      )
+      .slice(0, limit)
+      .map(({ entry }) => ({
+        id: entry.id,
+        name: entry.tool.name,
+        description: entry.tool.description.slice(0, MAX_DESCRIPTION_LENGTH),
+        readOnly: entry.tool.readOnly === true,
+      })),
+  };
 }
 
 export function loadCatalogEntry(
@@ -136,11 +202,27 @@ export function loadCatalogEntry(
   args: Record<string, unknown>,
 ): CatalogEntry {
   const id = String(args.id ?? "");
-  const entry = entries.find((candidate) => candidate.id === id);
-  if (!entry) throw new Error("Tool is unknown or not authorized for this bot");
+  const byId = entries.find((candidate) => candidate.id === id);
+  if (byId) {
+    assertSchemaSize(byId);
+    return byId;
+  }
+  const byName = entries.filter((candidate) => candidate.tool.name === id);
+  if (byName.length === 1) {
+    assertSchemaSize(byName[0]!);
+    return byName[0]!;
+  }
+  const byShort = entries.filter((candidate) => catalogShortName(candidate) === id);
+  if (byShort.length === 1) {
+    assertSchemaSize(byShort[0]!);
+    return byShort[0]!;
+  }
+  throw new Error("Tool is unknown or not authorized for this bot");
+}
+
+function assertSchemaSize(entry: CatalogEntry): void {
   const schemaBytes = Buffer.byteLength(JSON.stringify(entry.tool.inputSchema), "utf8");
   if (schemaBytes > SELECTED_SCHEMA_MAX_BYTES) throw new Error("Tool schema is too large");
-  return entry;
 }
 
 export function resolveCatalogCall(
@@ -197,7 +279,7 @@ export async function* executeLazyCatalogControl(
   executeResolved: (resolved: ConnectorCall) => AsyncIterable<ConnectorEvent>,
 ): AsyncIterable<ConnectorEvent> {
   if (call.route?.toolName === CATALOG_SEARCH) {
-    yield { type: "result", data: { tools: searchCatalog(entries, call.args) } };
+    yield { type: "result", data: searchCatalog(entries, call.args) };
     return;
   }
   if (call.route?.toolName === CATALOG_LOAD) {
@@ -233,19 +315,68 @@ export function disambiguateInstalledToolNames(tools: ConnectorTool[]): Connecto
   });
 }
 
+export function formatNameIndexText(
+  groups: Array<{ group: string; names: string[] }>,
+): string {
+  return groups.map(({ group, names }) => `${group}:\n  ${names.join(", ")}`).join("\n");
+}
+
+export function fitsNameIndexBudget(
+  groups: Array<{ group: string; names: string[] }>,
+): boolean {
+  const nameCount = groups.reduce((total, group) => total + group.names.length, 0);
+  if (nameCount > NAME_INDEX_MAX_NAMES) return false;
+  return Buffer.byteLength(formatNameIndexText(groups), "utf8") <= NAME_INDEX_MAX_BYTES;
+}
+
 function catalogEntryId(tool: ConnectorTool): string {
   const route = tool.route;
   if (!route?.resourceId) return tool.name;
   return `${route.resourceId}:${encodeURIComponent(route.toolName)}`;
 }
 
+function catalogGroupOf(tool: ConnectorTool): string {
+  const labeled = tool.route?.catalogGroup?.trim();
+  if (labeled) return labeled.slice(0, MAX_GROUP_LENGTH);
+  return "other";
+}
+
+function catalogShortName(entry: CatalogEntry): string {
+  const routeName = entry.tool.route?.toolName?.trim();
+  if (routeName) return routeName;
+  return entry.tool.name;
+}
+
+function groupedNames(entries: CatalogEntry[]): Array<{ group: string; names: string[] }> {
+  const byGroup = new Map<string, string[]>();
+  for (const entry of entries) {
+    const names = byGroup.get(entry.group) ?? [];
+    names.push(catalogShortName(entry));
+    byGroup.set(entry.group, names);
+  }
+  return [...byGroup.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([group, names]) => ({
+      group,
+      names: [...new Set(names)].sort((left, right) => left.localeCompare(right)),
+    }));
+}
+
+function listNames(entries: CatalogEntry[]): string[] {
+  return [...new Set(entries.map(catalogShortName))].sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
 function catalogScore(entry: CatalogEntry, query: string): number {
   if (!query) return 0;
   const name = entry.tool.name.toLowerCase();
+  const shortName = catalogShortName(entry).toLowerCase();
   const description = entry.tool.description.toLowerCase();
-  if (name === query) return 0;
-  if (name.startsWith(query)) return 1;
-  if (name.includes(query)) return 2;
+  const group = entry.group.toLowerCase();
+  if (name === query || shortName === query) return 0;
+  if (name.startsWith(query) || shortName.startsWith(query)) return 1;
+  if (name.includes(query) || shortName.includes(query) || group.includes(query)) return 2;
   if (description.includes(query)) return 3;
   return 4;
 }
