@@ -1959,6 +1959,7 @@ const MessageBubble = memo(function MessageBubble({
           width: "100%",
           paddingVertical: 4,
           alignItems: "center",
+          justifyContent: "center",
           flexDirection: "row",
           gap: 6,
         }}
