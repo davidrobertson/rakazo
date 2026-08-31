@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   approvedCatalogReplay,
   approvedReplayArgs,
+  boundDirectApprovalRequest,
   catalogApprovalRequest,
   createApprovedEffectReplayQueue,
 } from "./approval-effect.js";
@@ -105,6 +106,30 @@ describe("executor approval replay", () => {
     expect(continuation).toContain(
       'notes.write: {"id":"row-1","arguments":{"mode":"strict"},"text":"approved exactly","__rakazoCatalogTool":"installed_execute_tool"}',
     );
+  });
+
+  it("renders a catalog wrapper continuation when a bound direct tool is no longer exposed", () => {
+    const request = boundDirectApprovalRequest(
+      { connectorId: "installed", resourceId: "install-A", toolName: "notes.write" },
+      { text: "approved exactly" },
+      "__rakazoCatalogTool",
+    );
+    const stillDirect = buildApprovalContinuation(
+      [{ kind: "notes.write", request }],
+      JSON.stringify,
+      { exposedToolNames: new Set(["notes.write"]) },
+    );
+    const afterGrowth = buildApprovalContinuation(
+      [{ kind: "notes.write", request }],
+      JSON.stringify,
+      { exposedToolNames: new Set(["installed_execute_tool"]) },
+    );
+
+    expect(stillDirect).toContain('notes.write: {"text":"approved exactly"}');
+    expect(afterGrowth).toContain(
+      'installed_execute_tool: {"id":"install-A:notes.write","arguments":{"text":"approved exactly"}}',
+    );
+    expect(afterGrowth).not.toContain("notes.write:");
   });
 
   it("pins lazy approval replay to the approved source when tool names collide", () => {

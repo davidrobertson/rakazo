@@ -93,6 +93,8 @@ import {
   boundDirectApprovalRequest,
   catalogApprovalDetails,
   catalogApprovalRequest,
+  catalogExecuteToolName,
+  catalogIdForRoute,
   claimApprovedEffect,
   claimIntendedEffect,
   completeExternalEffect,
@@ -439,6 +441,7 @@ const CATALOG_APPROVAL_TOOL = "__rakazoCatalogTool";
 export function buildApprovalContinuation(
   approvedEffects: readonly { kind: string; request: unknown }[],
   formatRequest: (request: unknown) => string,
+  options?: { exposedToolNames?: ReadonlySet<string> },
 ): string | undefined {
   if (approvedEffects.length === 0) return undefined;
   return [
@@ -451,6 +454,14 @@ export function buildApprovalContinuation(
       }
       const bound = boundDirectApprovalDetails(effect.request, CATALOG_APPROVAL_TOOL);
       if (bound) {
+        const stillDirect = options?.exposedToolNames?.has(effect.kind) ?? true;
+        if (!stillDirect) {
+          const wrapper = catalogExecuteToolName(bound.route.connectorId);
+          return `${wrapper}: ${formatRequest({
+            id: catalogIdForRoute(bound.route),
+            arguments: bound.args,
+          })}`;
+        }
         return `${effect.kind}: ${formatRequest(bound.args)}`;
       }
       return `${effect.kind}: ${formatRequest(effect.request)}`;
@@ -2555,8 +2566,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
               parsePlaybook(invokedSkill.playbook),
             )}\n\n${taskPrompt}`
           : taskPrompt;
-        const approvalContinuation = buildApprovalContinuation(approvedEffects, (request) =>
-          redactSecrets(JSON.stringify(request), runSecrets),
+        const approvalContinuation = buildApprovalContinuation(
+          approvedEffects,
+          (request) => redactSecrets(JSON.stringify(request), runSecrets),
+          { exposedToolNames: new Set(tools.map((tool) => tool.name)) },
         );
         const prompt = [basePrompt, takeoverResume?.promptNote, approvalContinuation]
           .filter(Boolean)

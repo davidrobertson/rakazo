@@ -151,12 +151,21 @@ describe("approved effect replay", () => {
     expect(
       approvalReplayResourceError("notes.write", true, approved, same, marker),
     ).toBeUndefined();
+    expect(
+      approvalReplayResourceError("notes.write", false, approved, same, marker),
+    ).toBeUndefined();
     expect(approvalReplayResourceError("notes.write", true, approved, other, marker)).toMatch(
+      /different connector resource/,
+    );
+    expect(approvalReplayResourceError("notes.write", false, approved, other, marker)).toMatch(
       /different connector resource/,
     );
     expect(
       approvalReplayResourceError("notes.write", true, { text: "legacy" }, same, marker),
     ).toMatch(/must be replayed as a direct tool call/);
+    expect(
+      approvalReplayResourceError("notes.write", false, { text: "legacy" }, same, marker),
+    ).toBeUndefined();
     expect(approvedReplayArgs(approved, { text: "model" }, marker)).toEqual({
       text: "approved exactly",
       mode: "fast",

@@ -186,7 +186,8 @@ export function approvalReplayPathError(
   return undefined;
 }
 
-/** After catalog growth, a direct approval may only execute on the original connector resource. */
+/** Bound direct approvals must match the live connector resource on every replay.
+ * Legacy unbound direct approvals only fail closed when reached via catalog remap. */
 export function approvalReplayResourceError(
   toolName: string,
   catalogRemapped: boolean,
@@ -194,16 +195,26 @@ export function approvalReplayResourceError(
   liveRoute: BoundApprovalRoute | undefined,
   marker: string,
 ): string | undefined {
-  if (!catalogRemapped) return undefined;
   if (catalogApprovalDetails(approvedRequest, marker)) return undefined;
   const bound = boundDirectApprovalDetails(approvedRequest, marker);
   if (!bound) {
-    return `Approved direct request ${toolName} must be replayed as a direct tool call.`;
+    if (catalogRemapped) {
+      return `Approved direct request ${toolName} must be replayed as a direct tool call.`;
+    }
+    return undefined;
   }
   if (!approvalRoutesMatch(bound.route, liveRoute)) {
     return `Approved request ${toolName} was for a different connector resource.`;
   }
   return undefined;
+}
+
+export function catalogExecuteToolName(connectorId: string): string {
+  return `${connectorId}_execute_tool`;
+}
+
+export function catalogIdForRoute(route: BoundApprovalRoute): string {
+  return `${route.resourceId}:${encodeURIComponent(route.toolName)}`;
 }
 
 export function approvalPausedToolResult(): ApprovalPausedToolResult {
