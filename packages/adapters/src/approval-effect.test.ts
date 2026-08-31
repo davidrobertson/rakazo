@@ -2,6 +2,7 @@ import { approvalEffectKey } from "@rakazo/core/node/approval-effect-key";
 import { describe, expect, it, vi } from "vitest";
 import {
   approvalPausedToolResult,
+  approvalReplayPathError,
   approvedCatalogReplay,
   approvedReplayArgs,
   catalogApprovalDetails,
@@ -91,6 +92,25 @@ describe("approved effect replay", () => {
       text: "approved",
       mode: "fast",
     });
+  });
+
+  it("rejects cross-path replay when a direct approval shares a catalog tool name", () => {
+    const marker = "__rakazoCatalogTool";
+    const direct = { text: "approved exactly" };
+    const catalog = catalogApprovalRequest(
+      "installed_execute_tool",
+      { id: "install-A:notes.write", arguments: { text: "catalog" } },
+      marker,
+    );
+
+    expect(approvalReplayPathError("notes.write", true, direct, marker)).toMatch(
+      /must be replayed as a direct tool call/,
+    );
+    expect(approvalReplayPathError("notes.write", false, catalog, marker)).toMatch(
+      /must be replayed via its catalog execute tool/,
+    );
+    expect(approvalReplayPathError("notes.write", false, direct, marker)).toBeUndefined();
+    expect(approvalReplayPathError("notes.write", true, catalog, marker)).toBeUndefined();
   });
 });
 

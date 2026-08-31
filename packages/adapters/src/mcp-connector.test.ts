@@ -104,7 +104,7 @@ describe("MCP connector session cache", () => {
       network: { resolveHostname: async () => [{ address: "203.0.113.10", family: 4 }] },
     });
     const context = {
-      workspaceId: "w1",
+      spaceId: "w1",
       userId: "u1",
       botId: "bot-1",
       signal: new AbortController().signal,
@@ -124,7 +124,7 @@ describe("MCP connector session cache", () => {
 
   it("exposes 20 MCP tools directly and switches at 21", async () => {
     const context = {
-      workspaceId: "w1",
+      spaceId: "w1",
       userId: "u1",
       botId: "bot-1",
       signal: new AbortController().signal,
@@ -171,7 +171,7 @@ describe("MCP connector session cache", () => {
     );
     await expect(
       connector.discoverTools({
-        workspaceId: "w1",
+        spaceId: "w1",
         userId: "u1",
         botId: "bot-1",
         signal: new AbortController().signal,
@@ -207,7 +207,7 @@ describe("MCP connector session cache", () => {
       network: { resolveHostname: async () => [{ address: "203.0.113.10", family: 4 }] },
     });
     const context = {
-      workspaceId: "w1",
+      spaceId: "w1",
       userId: "u1",
       botId: "bot-1",
       signal: new AbortController().signal,
@@ -324,7 +324,7 @@ describe("MCP connector session cache", () => {
       network: { resolveHostname: async () => [{ address: "203.0.113.10", family: 4 }] },
     });
     const context = {
-      workspaceId: "w1",
+      spaceId: "w1",
       userId: "u1",
       botId: "bot-1",
       signal: new AbortController().signal,

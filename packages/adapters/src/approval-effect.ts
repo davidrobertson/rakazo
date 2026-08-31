@@ -91,6 +91,21 @@ export function catalogApprovalDetails(
   return { toolName: request[1], args: request[2] as Record<string, unknown> };
 }
 
+/** Reject when a same-named direct approval would be consumed by a catalog-resolved call (or vice versa). */
+export function approvalReplayPathError(
+  toolName: string,
+  catalogRemapped: boolean,
+  approvedRequest: unknown,
+  marker: string,
+): string | undefined {
+  if (!approvedRequest) return undefined;
+  const approvedIsCatalog = Boolean(catalogApprovalDetails(approvedRequest, marker));
+  if (catalogRemapped === approvedIsCatalog) return undefined;
+  return approvedIsCatalog
+    ? `Approved catalog request ${toolName} must be replayed via its catalog execute tool.`
+    : `Approved direct request ${toolName} must be replayed as a direct tool call.`;
+}
+
 export function approvalPausedToolResult(): ApprovalPausedToolResult {
   return {
     kind: "agent_tool_result",
