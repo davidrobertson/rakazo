@@ -132,6 +132,28 @@ describe("executor approval replay", () => {
     expect(afterGrowth).not.toContain("notes.write:");
   });
 
+  it("renders a uniquified direct name when collision renames the tool under the direct limit", () => {
+    const request = boundDirectApprovalRequest(
+      { connectorId: "installed", resourceId: "install-A", toolName: "delete_item" },
+      { target: "approved" },
+      "__rakazoCatalogTool",
+    );
+    const continuation = buildApprovalContinuation(
+      [{ kind: "delete_item", request }],
+      JSON.stringify,
+      {
+        exposedToolNames: new Set([
+          "installed__install-A__delete_item",
+          "installed__install-B__delete_item",
+        ]),
+      },
+    );
+
+    expect(continuation).toContain('installed__install-A__delete_item: {"target":"approved"}');
+    expect(continuation).not.toContain("installed_execute_tool:");
+    expect(continuation).not.toContain("delete_item:");
+  });
+
   it("pins lazy approval replay to the approved source when tool names collide", () => {
     const effects = [
       {
