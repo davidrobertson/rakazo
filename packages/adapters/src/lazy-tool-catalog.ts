@@ -168,6 +168,14 @@ export function parseConnectorToolArgs(
   inputSchema: Record<string, unknown>,
   args: Record<string, unknown>,
 ): Record<string, unknown> {
+  // Zod's fromJSONSchema currently builds loose records for patternProperties and
+  // skips additionalProperties: false, so reject that combination instead of
+  // letting non-matching keys reach connector execution.
+  if (inputSchema.patternProperties != null && inputSchema.additionalProperties === false) {
+    throw new Error(
+      "Tool schema is unsupported: patternProperties with additionalProperties false",
+    );
+  }
   const schema = z.fromJSONSchema(inputSchema as never);
   const parsed = schema.safeParse(args);
   if (!parsed.success) {

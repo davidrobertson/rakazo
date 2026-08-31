@@ -167,6 +167,17 @@ describe("lazy tool catalog", () => {
     expect(() => assertConnectorToolArgs(schema, {})).toThrow(/invalid/i);
   });
 
+  it("rejects schemas that combine patternProperties with additionalProperties false", () => {
+    const schema = {
+      type: "object",
+      patternProperties: { "^x-": { type: "string" } },
+      additionalProperties: false,
+    };
+    expect(() => assertConnectorToolArgs(schema, { "x-a": "ok" })).toThrow(
+      /patternProperties with additionalProperties false/,
+    );
+  });
+
   it("uniquifies installed tool names across installs", () => {
     expect(uniquifyInstalledToolName("install-A", "delete_item")).toBe(
       "installed__install-A__delete_item",
