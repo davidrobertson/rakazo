@@ -119,7 +119,12 @@ describe("executor approval replay", () => {
       },
     ];
     const queue = createApprovedEffectReplayQueue(effects);
-    const replay = approvedCatalogReplay(queue, "installed_execute_tool", "__rakazoCatalogTool", true);
+    const replay = approvedCatalogReplay(
+      queue,
+      "installed_execute_tool",
+      "__rakazoCatalogTool",
+      true,
+    );
     const modelRuntimeArgs = {
       id: "install-B:delete_item",
       arguments: { target: "model-reconstructed" },

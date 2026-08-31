@@ -142,7 +142,6 @@ import { checkpointAndRecordComputerWorkspace } from "./computer-workspace.js";
 import { sanitizeConnectorError } from "./connector-safety.js";
 import { resolveDeploymentModel } from "./deployment-model.js";
 import { handoffToGroupBot, loadGroupContext } from "./group-handoff.js";
-import { CATALOG_EXECUTE } from "./lazy-tool-catalog.js";
 import {
   COMPACTION_BATCH_SIZE,
   formatCompactedSummary,
@@ -154,6 +153,7 @@ import {
   selectCompactedHistory,
   shouldEnqueueCompaction,
 } from "./history-compaction.js";
+import { CATALOG_EXECUTE } from "./lazy-tool-catalog.js";
 import {
   buildMcpCredentialBlob,
   needsOAuthProbe,
