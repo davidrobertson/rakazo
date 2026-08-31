@@ -1,7 +1,8 @@
-import type { ConnectorTool } from "@rakazo/adapter-kit";
+import type { AgentRuntimeEvent, ConnectorTool } from "@rakazo/adapter-kit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fakeAgentState = vi.hoisted(() => ({
+  options: ["Berlin", "Seoul", "Toronto"],
   tools: [] as Array<{
     name: string;
     execute: (toolCallId: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -25,7 +26,7 @@ vi.mock("@earendil-works/pi-agent-core", () => ({
       if (!askUser) throw new Error("ask_user tool missing");
       await askUser.execute("call-choice-1", {
         question: "Which city should I use?",
-        options: ["Berlin", "Seoul", "Toronto"],
+        options: fakeAgentState.options,
       });
     }
 
@@ -92,11 +93,12 @@ const runRequest = {
 describe("Pi choice asks", () => {
   beforeEach(() => {
     fakeAgentState.tools = [];
+    fakeAgentState.options = ["Berlin", "Seoul", "Toronto"];
   });
 
   it("emits a tappable ask and stops without a finished-work fallback", async () => {
     const runtime = new PiAgentRuntime();
-    const events = [];
+    const events: AgentRuntimeEvent[] = [];
 
     for await (const event of runtime.run(runRequest, runContext)) events.push(event);
 
@@ -104,13 +106,24 @@ describe("Pi choice asks", () => {
       type: "ask",
       text: "Which city should I use?",
       actions: [
-        { id: "Berlin", label: "Berlin" },
-        { id: "Seoul", label: "Seoul" },
-        { id: "Toronto", label: "Toronto" },
+        { id: "choice-1", label: "Berlin" },
+        { id: "choice-2", label: "Seoul" },
+        { id: "choice-3", label: "Toronto" },
       ],
     });
     expect(
       events.some((event) => event.type === "text" && event.text.includes("I finished the work.")),
     ).toBe(false);
+  });
+
+  it("rejects an empty choice set before emitting an ask", async () => {
+    fakeAgentState.options = [];
+    const runtime = new PiAgentRuntime();
+    const events: AgentRuntimeEvent[] = [];
+
+    await expect(async () => {
+      for await (const event of runtime.run(runRequest, runContext)) events.push(event);
+    }).rejects.toThrow("ask_user requires two to four unique, non-empty options");
+    expect(events.some((event) => event.type === "ask")).toBe(false);
   });
 });

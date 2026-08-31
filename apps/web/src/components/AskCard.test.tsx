@@ -1,12 +1,12 @@
+import { selectedAskActionLabel } from "@rakazo/core";
 import { describe, expect, it } from "vitest";
-import { selectedAskActionLabel } from "./ask-card-state.js";
 
 describe("selectedAskActionLabel", () => {
   it("maps a choice answer id to its user-facing label", () => {
     expect(
-      selectedAskActionLabel("seoul", [
-        { id: "berlin", label: "Berlin" },
-        { id: "seoul", label: "Seoul" },
+      selectedAskActionLabel("choice-2", [
+        { id: "choice-1", label: "Berlin" },
+        { id: "choice-2", label: "Seoul" },
       ]),
     ).toBe("Seoul");
   });

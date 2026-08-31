@@ -561,16 +561,22 @@ function toAgentTool(tool: ConnectorTool, host: ToolHost, exposedName: string): 
         };
       }
       if (tool.name === "ask_user") {
+        const options = Array.isArray(args.options)
+          ? args.options.map((option) => String(option).trim())
+          : [];
+        if (
+          options.length < 2 ||
+          options.length > 4 ||
+          options.some((option) => option.length === 0 || option.length > 80) ||
+          new Set(options).size !== options.length
+        ) {
+          throw new Error("ask_user requires two to four unique, non-empty options");
+        }
         host.pausePending = true;
         host.queue.push({
           type: "ask",
           text: String(args.question ?? "What should I use?"),
-          actions: Array.isArray(args.options)
-            ? args.options.map((option) => {
-                const label = String(option);
-                return { id: label, label };
-              })
-            : [],
+          actions: options.map((label, index) => ({ id: `choice-${index + 1}`, label })),
         });
         return {
           content: [{ type: "text", text: "Waiting for the user's choice." }],
@@ -790,6 +796,16 @@ function parametersFor(tool: ConnectorTool) {
       label: Type.String(),
       purpose: Type.Union([Type.Literal("otp"), Type.Literal("password"), Type.Literal("api_key")]),
       connectionId: Type.Optional(Type.String()),
+    });
+  }
+  if (tool.name === "ask_user") {
+    return Type.Object({
+      question: Type.String({ maxLength: 240 }),
+      options: Type.Array(Type.String({ minLength: 1, maxLength: 80 }), {
+        minItems: 2,
+        maxItems: 4,
+        uniqueItems: true,
+      }),
     });
   }
   if (tool.name === "remember") {

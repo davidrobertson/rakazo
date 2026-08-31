@@ -2602,7 +2602,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 ? redactSecrets(event.detail, runSecrets)
                 : event.detail;
               const safeActions = event.actions?.map((action) => ({
-                id: redactSecrets(action.id, runSecrets),
+                id: action.id,
                 label: redactSecrets(action.label, runSecrets),
               }));
               await checkpointAndRecordComputerWorkspace(deps, storedComputer, computer, context);

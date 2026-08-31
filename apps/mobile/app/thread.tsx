@@ -20,6 +20,7 @@ import {
   resolveComposerSendPlan,
   SLASH_ACTIONS,
   type SlashActionId,
+  selectedAskActionLabel,
   serializeComposerPrompt,
   truncateSlashDescription,
   userVisibleMessages,
@@ -109,16 +110,20 @@ function newClientNonce(): string {
   return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function formatApprovalAnswer(answer: string | undefined, actions?: AskAction[]): string {
+function formatApprovalAnswer(
+  answer: string | undefined,
+  actions: AskAction[] | undefined,
+  approval: boolean,
+): string {
   if (!answer) return "Answered";
   const selectedAction = actions?.find((action) => action.id === answer);
   const outcome = selectedAction?.outcome;
-  if (outcome === "created") return "Created";
-  if (outcome === "cancelled") return "Cancelled";
-  if (answer === "allow") return "Allowed once";
-  if (answer === "always") return "Always allowed";
-  if (answer === "deny") return "Denied";
-  return `Answered: ${selectedAction?.label ?? answer}`;
+  if (approval && outcome === "created") return "Created";
+  if (approval && outcome === "cancelled") return "Cancelled";
+  if (approval && answer === "allow") return "Allowed once";
+  if (approval && answer === "always") return "Always allowed";
+  if (approval && answer === "deny") return "Denied";
+  return `Answered: ${selectedAskActionLabel(answer, actions)}`;
 }
 
 function isWorkingStatus(status: string | undefined): boolean {
@@ -1903,7 +1908,7 @@ const MessageBubble = memo(function MessageBubble({
   );
   const ask = message.blocks.find(
     (block): block is Extract<MessageBlock, { kind: "ask" }> =>
-      block.kind === "ask" && !isApprovalAskBlock(block),
+      block.kind === "ask" && !isApprovalAskBlock(block) && !block.actions?.length,
   );
   if (ask) {
     return (
@@ -2119,7 +2124,11 @@ const MessageBubble = memo(function MessageBubble({
                 fontWeight: "600",
               }}
             >
-              {formatApprovalAnswer(askBlock.answer, askBlock.actions)}
+              {formatApprovalAnswer(
+                askBlock.answer,
+                askBlock.actions,
+                isApprovalAskBlock(askBlock),
+              )}
             </Text>
           ) : canAnswer && onAnswer ? (
             <AskActions
