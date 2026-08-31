@@ -497,7 +497,11 @@ export async function answerRunInput(
     } else {
       const task = await tx.task.updateMany({
         where: { runs: { some: { id: input.runId } } },
-        data: { prompt: selectedChoice?.label ?? input.answer },
+        data: {
+          prompt: selectedChoice
+            ? `Selected choice ${selectedChoice.id}: ${selectedChoice.label}`
+            : input.answer,
+        },
       });
       if (task.count !== 1) throw new Error("Run task was not available to answer");
     }

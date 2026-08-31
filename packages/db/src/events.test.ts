@@ -431,7 +431,7 @@ describe("answerRunInput", () => {
     });
     expect(tx.task.updateMany).toHaveBeenCalledWith({
       where: { runs: { some: { id: "run-1" } } },
-      data: { prompt: "Paris" },
+      data: { prompt: "Selected choice choice-2: Paris" },
     });
     expect(tx.event.create).toHaveBeenCalledWith(
       expect.objectContaining({
