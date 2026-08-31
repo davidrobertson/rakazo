@@ -151,7 +151,7 @@ describe("executor approval replay", () => {
 
     expect(continuation).toContain('installed__install-A__delete_item: {"target":"approved"}');
     expect(continuation).not.toContain("installed_execute_tool:");
-    expect(continuation).not.toContain("delete_item:");
+    expect(continuation).not.toMatch(/(^|\n)delete_item:/);
   });
 
   it("pins lazy approval replay to the approved source when tool names collide", () => {
