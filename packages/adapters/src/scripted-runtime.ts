@@ -94,7 +94,12 @@ export class ScriptedAgentRuntime implements AgentRuntime {
           };
         }
         if (turn.ask) {
-          yield { type: "ask", text: turn.ask.text, detail: turn.ask.detail };
+          yield {
+            type: "ask",
+            text: turn.ask.text,
+            detail: turn.ask.detail,
+            actions: turn.ask.actions,
+          };
           return;
         }
         if (turn.takeover) {

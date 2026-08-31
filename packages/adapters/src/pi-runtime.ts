@@ -476,6 +476,12 @@ function toAgentTool(tool: ConnectorTool, host: ToolHost, exposedName: string): 
       if (tool.name === "request_takeover") {
         return { reason: String(raw.reason ?? "I need you on the screen.") };
       }
+      if (tool.name === "ask_user") {
+        return {
+          question: String(raw.question ?? "What should I use?"),
+          options: Array.isArray(raw.options) ? raw.options.map(String) : [],
+        };
+      }
       if (tool.name === "request_secret") {
         return {
           label: String(raw.label ?? "Code"),
@@ -550,6 +556,24 @@ function toAgentTool(tool: ConnectorTool, host: ToolHost, exposedName: string): 
         });
         return {
           content: [{ type: "text", text: "Takeover requested." }],
+          details: args,
+          terminate: true,
+        };
+      }
+      if (tool.name === "ask_user") {
+        host.pausePending = true;
+        host.queue.push({
+          type: "ask",
+          text: String(args.question ?? "What should I use?"),
+          actions: Array.isArray(args.options)
+            ? args.options.map((option) => {
+                const label = String(option);
+                return { id: label, label };
+              })
+            : [],
+        });
+        return {
+          content: [{ type: "text", text: "Waiting for the user's choice." }],
           details: args,
           terminate: true,
         };

@@ -111,13 +111,14 @@ function newClientNonce(): string {
 
 function formatApprovalAnswer(answer: string | undefined, actions?: AskAction[]): string {
   if (!answer) return "Answered";
-  const outcome = actions?.find((action) => action.id === answer)?.outcome;
+  const selectedAction = actions?.find((action) => action.id === answer);
+  const outcome = selectedAction?.outcome;
   if (outcome === "created") return "Created";
   if (outcome === "cancelled") return "Cancelled";
   if (answer === "allow") return "Allowed once";
   if (answer === "always") return "Always allowed";
   if (answer === "deny") return "Denied";
-  return `Answered: ${answer}`;
+  return `Answered: ${selectedAction?.label ?? answer}`;
 }
 
 function isWorkingStatus(status: string | undefined): boolean {
@@ -2074,7 +2075,9 @@ const MessageBubble = memo(function MessageBubble({
       </View>
     );
   }
-  const askBlock = message.blocks.find(isApprovalAskBlock);
+  const askBlock = message.blocks.find(
+    (block) => block.kind === "ask" && Boolean(block.actions?.length),
+  );
   if (askBlock?.kind === "ask" && askBlock.actions?.length) {
     return (
       <View style={{ gap: 8, width: "100%" }}>

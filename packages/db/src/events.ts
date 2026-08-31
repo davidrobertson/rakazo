@@ -413,6 +413,8 @@ export async function answerRunInput(
     if (pendingAsk?.kind !== "ask") return null;
     const approvalAsk = isApprovalAskBlock(pendingAsk);
     const secretAsk = isSecretAskBlock(pendingAsk);
+    const choiceAsk = !approvalAsk && !secretAsk && Boolean(pendingAsk.actions?.length);
+    if (choiceAsk && !pendingAsk.actions?.some((action) => action.id === input.answer)) return null;
     if (secretAsk && !runSecretWriter) return null;
     let approvalEffect: { id: string; kind: string } | null = null;
     let approvalUserId: string | null = null;
