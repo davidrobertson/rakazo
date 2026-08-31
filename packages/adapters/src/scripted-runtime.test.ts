@@ -2,6 +2,8 @@ import type { AgentRuntimeEvent } from "@rakazo/adapter-kit";
 import { describe, expect, it } from "vitest";
 import { ScriptedAgentRuntime } from "./scripted-runtime.js";
 
+const tool = (name: string) => ({ name, description: name, inputSchema: {} });
+
 describe("ScriptedAgentRuntime executionIds", () => {
   it("gives repeated tools distinct executionIds within a run", async () => {
     const runtime = new ScriptedAgentRuntime();
@@ -13,7 +15,7 @@ describe("ScriptedAgentRuntime executionIds", () => {
       prompt: "ping",
       instructions: "",
       history: [],
-      tools: [],
+      tools: [tool("message_agent")],
       model: { provider: "scripted", id: "scripted" },
       script: [
         {
@@ -34,5 +36,30 @@ describe("ScriptedAgentRuntime executionIds", () => {
       )
       .map((event) => event.executionId);
     expect(toolIds).toEqual(["run-1:message_agent:0", "run-1:message_agent:1"]);
+  });
+
+  it("rejects scripted calls to tools that were not selected for the run", async () => {
+    const runtime = new ScriptedAgentRuntime();
+
+    await expect(async () => {
+      for await (const _event of runtime.run({
+        botId: "bot-1",
+        threadId: "thread-1",
+        runId: "run-unselected-tool",
+        prompt: "ping",
+        instructions: "",
+        history: [],
+        tools: [],
+        model: { provider: "scripted", id: "scripted" },
+        script: [
+          {
+            toolCalls: [{ name: "recall_memory", args: { query: "private context" } }],
+            complete: true,
+          },
+        ],
+      })) {
+        // Consume the stream so runtime errors are observed.
+      }
+    }).rejects.toThrow('Scripted tool "recall_memory" is not available for this run');
   });
 });

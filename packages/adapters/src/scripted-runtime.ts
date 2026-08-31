@@ -44,6 +44,7 @@ export class ScriptedAgentRuntime implements AgentRuntime {
         return;
       }
       const script = request.script ?? inferScript(request.prompt, request.resumeFromCheckpoint);
+      const availableToolNames = new Set(request.tools.map((tool) => tool.name));
       // Per-run call index so repeated tools (e.g. message_agent) get distinct
       // executionIds — delivery keys and effect replays key off this value.
       let toolCallSeq = 0;
@@ -57,6 +58,9 @@ export class ScriptedAgentRuntime implements AgentRuntime {
           yield { type: "text", text: turn.assistant };
         }
         for (const call of turn.toolCalls ?? []) {
+          if (!availableToolNames.has(call.name)) {
+            throw new Error(`Scripted tool "${call.name}" is not available for this run`);
+          }
           const executionId = `${request.runId}:${call.name}:${toolCallSeq++}`;
           if (call.name === "run_subagent") {
             const agentId = `${request.runId}:subagent`;
