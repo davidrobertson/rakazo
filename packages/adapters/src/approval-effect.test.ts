@@ -166,9 +166,10 @@ describe("approved effect replay", () => {
     expect(approvalReplayResourceError("notes.write", false, approved, other, marker)).toMatch(
       /different connector resource/,
     );
+    // OAuth/session refresh may bump revision without changing the approved resource.
     expect(
       approvalReplayResourceError("notes.write", false, approved, changedRevision, marker),
-    ).toMatch(/different connector resource/);
+    ).toBeUndefined();
     expect(
       approvalReplayResourceError("notes.write", true, { text: "legacy" }, same, marker),
     ).toMatch(/must be replayed as a direct tool call/);
