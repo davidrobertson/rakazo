@@ -91,6 +91,38 @@ describe("executor approval replay", () => {
     expect(continuation).not.toContain("__rakazoCatalogTool");
   });
 
+  it("renders a direct tool continuation when a catalog approval's wrapper is no longer exposed", () => {
+    const request = catalogApprovalRequest(
+      "installed_execute_tool",
+      { id: "install-A:notes.write", arguments: { text: "approved exactly" } },
+      "__rakazoCatalogTool",
+    );
+    const stillCatalog = buildApprovalContinuation(
+      [{ kind: "notes.write", request }],
+      JSON.stringify,
+      { exposedToolNames: new Set(["installed_execute_tool", "installed_search_tools"]) },
+    );
+    const afterShrink = buildApprovalContinuation(
+      [{ kind: "notes.write", request }],
+      JSON.stringify,
+      { exposedToolNames: new Set(["notes.write"]) },
+    );
+    const afterShrinkUniquified = buildApprovalContinuation(
+      [{ kind: "notes.write", request }],
+      JSON.stringify,
+      { exposedToolNames: new Set(["installed__install-A__notes.write"]) },
+    );
+
+    expect(stillCatalog).toContain(
+      'installed_execute_tool: {"id":"install-A:notes.write","arguments":{"text":"approved exactly"}}',
+    );
+    expect(afterShrink).toContain('notes.write: {"text":"approved exactly"}');
+    expect(afterShrink).not.toContain("installed_execute_tool:");
+    expect(afterShrinkUniquified).toContain(
+      'installed__install-A__notes.write: {"text":"approved exactly"}',
+    );
+  });
+
   it("keeps a direct-tool argument named like the catalog marker in continuation JSON", () => {
     const continuation = buildApprovalContinuation(
       [

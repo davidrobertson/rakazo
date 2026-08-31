@@ -96,7 +96,7 @@ describe("approved effect replay", () => {
     });
   });
 
-  it("rejects catalog replay against a same-named direct tool after catalog shrink", () => {
+  it("does not inject catalog envelope args onto a non-wrapper tool call", () => {
     const marker = "__rakazoCatalogTool";
     const catalog = catalogApprovalRequest(
       "installed_execute_tool",
@@ -107,11 +107,8 @@ describe("approved effect replay", () => {
       { kind: "installed_execute_tool", request: catalog },
     ]);
 
-    // Direct invocation (no catalog execute route) must not consume the wrapper envelope.
-    expect(approvedCatalogReplay(queue, "installed_execute_tool", marker, false)).toEqual({
-      error:
-        "Approved catalog request installed_execute_tool must be replayed via its catalog execute tool.",
-    });
+    // Direct invocation must not receive the wrapper {id,arguments} envelope.
+    expect(approvedCatalogReplay(queue, "installed_execute_tool", marker, false)).toEqual({});
     expect(approvedCatalogReplay(queue, "installed_execute_tool", marker, true)).toEqual({
       args: { id: "install-A:installed_execute_tool", arguments: { text: "approved" } },
     });
@@ -129,10 +126,26 @@ describe("approved effect replay", () => {
       { id: "install-A:notes.write", arguments: { text: "catalog" } },
       marker,
     );
+    const matching = {
+      connectorId: "installed",
+      resourceId: "install-A",
+      toolName: "notes.write",
+    };
+    const other = {
+      connectorId: "installed",
+      resourceId: "install-B",
+      toolName: "notes.write",
+    };
 
     expect(approvalReplayPathError("notes.write", false, catalog, marker)).toMatch(
       /must be replayed via its catalog execute tool/,
     );
+    expect(approvalReplayPathError("notes.write", false, catalog, marker, other)).toMatch(
+      /must be replayed via its catalog execute tool/,
+    );
+    expect(
+      approvalReplayPathError("notes.write", false, catalog, marker, matching),
+    ).toBeUndefined();
     expect(approvalReplayPathError("notes.write", true, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", false, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", true, catalog, marker)).toBeUndefined();

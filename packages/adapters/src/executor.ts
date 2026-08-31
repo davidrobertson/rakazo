@@ -93,7 +93,10 @@ import {
   approvedReplayArgs,
   boundDirectApprovalDetails,
   boundDirectApprovalRequest,
+  catalogApprovalConnectorId,
   catalogApprovalDetails,
+  catalogApprovalInnerArgs,
+  catalogApprovalMatchesLiveRoute,
   catalogApprovalRequest,
   catalogExecuteToolName,
   catalogIdForRoute,
@@ -102,6 +105,7 @@ import {
   completeExternalEffect,
   createApprovedEffectReplayQueue,
   isToolPauseResult,
+  parseCatalogApprovalTarget,
   replaceCompletedExternalEffectResult,
   resolveDuplicateEffectGate,
   settleUncertainEffect,
@@ -464,7 +468,25 @@ export function buildApprovalContinuation(
     ...approvedEffects.map((effect) => {
       const catalog = catalogApprovalDetails(effect.request, CATALOG_APPROVAL_TOOL);
       if (catalog) {
-        return `${catalog.toolName}: ${formatRequest(catalog.args)}`;
+        const exposed = options?.exposedToolNames;
+        if (!exposed || exposed.has(catalog.toolName)) {
+          return `${catalog.toolName}: ${formatRequest(catalog.args)}`;
+        }
+        // Catalog shrank: wrapper is gone — resume as the matching direct tool.
+        const innerArgs = catalogApprovalInnerArgs(catalog) ?? {};
+        if (exposed.has(effect.kind)) {
+          return `${effect.kind}: ${formatRequest(innerArgs)}`;
+        }
+        const target = parseCatalogApprovalTarget(catalog.args);
+        const connectorId = catalogApprovalConnectorId(catalog.toolName);
+        const uniquified =
+          target && connectorId === "installed"
+            ? uniquifyInstalledToolName(target.resourceId, target.toolName)
+            : undefined;
+        if (uniquified && exposed.has(uniquified)) {
+          return `${uniquified}: ${formatRequest(innerArgs)}`;
+        }
+        return `${effect.kind}: ${formatRequest(innerArgs)}`;
       }
       const bound = boundDirectApprovalDetails(effect.request, CATALOG_APPROVAL_TOOL);
       if (bound) {
@@ -1302,12 +1324,22 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 }
               : undefined;
           const nextBound = boundDirectApprovalDetails(nextApprovedRequest, CATALOG_APPROVAL_TOOL);
+          const nextCatalog = catalogApprovalDetails(nextApprovedRequest, CATALOG_APPROVAL_TOOL);
           // After collision uniquify, the live tool name may differ from the stored effect
           // kind while still targeting the same bound connector resource.
           const sameBoundResource = Boolean(
             nextBound && liveRoute && approvalRoutesMatch(nextBound.route, liveRoute),
           );
-          if (nextApprovedTool && nextApprovedTool !== name && !sameBoundResource) {
+          // After catalog shrink, a catalog approval may resume as the matching direct tool.
+          const sameCatalogTarget = Boolean(
+            nextCatalog && catalogApprovalMatchesLiveRoute(nextCatalog, liveRoute),
+          );
+          if (
+            nextApprovedTool &&
+            nextApprovedTool !== name &&
+            !sameBoundResource &&
+            !sameCatalogTarget
+          ) {
             return {
               error: `Approved request ${nextApprovedTool} must be replayed before ${name}.`,
             };
@@ -1316,14 +1348,18 @@ export function createRunExecutor(deps: ExecutorDeps) {
           const replayEffectToolName = approvalReplayEffectToolName(
             name,
             nextApprovedTool,
-            sameBoundResource,
+            sameBoundResource || sameCatalogTarget,
           );
-          if (nextApprovedTool && (nextApprovedTool === name || sameBoundResource)) {
+          if (
+            nextApprovedTool &&
+            (nextApprovedTool === name || sameBoundResource || sameCatalogTarget)
+          ) {
             const pathError = approvalReplayPathError(
               name,
               catalogRemapped,
               nextApprovedRequest,
               CATALOG_APPROVAL_TOOL,
+              liveRoute,
             );
             if (pathError) return { error: pathError };
             const resourceError = approvalReplayResourceError(
@@ -1335,12 +1371,25 @@ export function createRunExecutor(deps: ExecutorDeps) {
             );
             if (resourceError) return { error: resourceError };
             const approvedRequest = approvedEffectReplays.take(nextApprovedTool)!;
-            // Catalog wrappers keep resolveCall's parsed args so Zod stripping/coercion
-            // still matches the first-approval effect key and execute payload.
-            args = approvedReplayArgs(approvedRequest, args, CATALOG_APPROVAL_TOOL);
-            // Bound direct approvals resume with persisted args that may skip catalog
-            // parse — reject before execute if they no longer match the live schema.
-            if (boundDirectApprovalDetails(approvedRequest, CATALOG_APPROVAL_TOOL)) {
+            const approvedCatalog = catalogApprovalDetails(approvedRequest, CATALOG_APPROVAL_TOOL);
+            if (approvedCatalog && !catalogRemapped) {
+              // Shrink-to-direct: restore approved inner arguments, not the wrapper envelope.
+              const innerArgs = catalogApprovalInnerArgs(approvedCatalog);
+              if (!innerArgs) {
+                return { error: `Approved catalog request ${name} is missing tool arguments.` };
+              }
+              args = innerArgs;
+            } else {
+              // Catalog wrappers keep resolveCall's parsed args so Zod stripping/coercion
+              // still matches the first-approval effect key and execute payload.
+              args = approvedReplayArgs(approvedRequest, args, CATALOG_APPROVAL_TOOL);
+            }
+            // Bound / shrink-direct approvals may skip catalog parse — reject before execute
+            // if they no longer match the live schema.
+            if (
+              boundDirectApprovalDetails(approvedRequest, CATALOG_APPROVAL_TOOL) ||
+              (approvedCatalog && !catalogRemapped)
+            ) {
               const liveSchema = resolvedToolSchema ?? connectorSchemas.get(name);
               if (liveSchema) {
                 try {

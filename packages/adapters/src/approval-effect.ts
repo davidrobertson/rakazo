@@ -48,16 +48,9 @@ export function approvedCatalogReplay(
 ): { args?: Record<string, unknown>; error?: string } {
   const pending = catalogApprovalDetails(queue.nextRequest(), marker);
   if (!pending) return {};
-  // Catalog approvals must only bind to the catalog execute wrapper route. After a
-  // catalog shrink, a same-named direct tool must not consume the wrapper envelope.
-  if (!onCatalogExecuteRoute) {
-    if (pending.toolName === toolName || queue.nextToolName() === toolName) {
-      return {
-        error: `Approved catalog request ${pending.toolName} must be replayed via its catalog execute tool.`,
-      };
-    }
-    return {};
-  }
+  // Only the catalog execute wrapper may consume the wrapper envelope. After a catalog
+  // shrink, matching direct tools resume via the FIFO path with inner arguments.
+  if (!onCatalogExecuteRoute) return {};
   if (pending.toolName !== toolName) {
     return { error: `Approved request ${pending.toolName} must be replayed before ${toolName}.` };
   }
@@ -69,6 +62,8 @@ export function approvedReplayArgs(
   resolvedArgs: Record<string, unknown>,
   marker: string,
 ): Record<string, unknown> {
+  // Catalog execute keeps resolveCall-parsed args (defaults/coercion). Shrink-to-direct
+  // restores inner arguments in the executor when catalogRemapped is false.
   if (catalogApprovalDetails(approvedRequest, marker)) return resolvedArgs;
   const bound = boundDirectApprovalDetails(approvedRequest, marker);
   if (bound) return bound.args;
@@ -178,17 +173,20 @@ export function approvalRoutesMatch(
   );
 }
 
-/** Reject draining a catalog approval from a non-catalog call. Direct approvals may be
- * replayed through a catalog wrapper after the catalog grows past the direct-tool limit. */
+/** Reject draining a catalog approval from a non-catalog call unless the live route
+ * matches the approved catalog target (catalog shrank back to direct tools). Direct
+ * approvals may be replayed through a catalog wrapper after the catalog grows. */
 export function approvalReplayPathError(
   toolName: string,
   catalogRemapped: boolean,
   approvedRequest: unknown,
   marker: string,
+  liveRoute?: BoundApprovalRoute,
 ): string | undefined {
   if (!approvedRequest) return undefined;
-  const approvedIsCatalog = Boolean(catalogApprovalDetails(approvedRequest, marker));
-  if (!catalogRemapped && approvedIsCatalog) {
+  const catalog = catalogApprovalDetails(approvedRequest, marker);
+  if (!catalogRemapped && catalog) {
+    if (catalogApprovalMatchesLiveRoute(catalog, liveRoute)) return undefined;
     return `Approved catalog request ${toolName} must be replayed via its catalog execute tool.`;
   }
   return undefined;
@@ -223,6 +221,51 @@ export function catalogExecuteToolName(connectorId: string): string {
 
 export function catalogIdForRoute(route: BoundApprovalRoute): string {
   return `${route.resourceId}:${encodeURIComponent(route.toolName)}`;
+}
+
+export function parseCatalogApprovalTarget(
+  args: Record<string, unknown>,
+): { resourceId: string; toolName: string } | undefined {
+  const id = args.id;
+  if (typeof id !== "string") return undefined;
+  const separator = id.indexOf(":");
+  if (separator <= 0 || separator === id.length - 1) return undefined;
+  try {
+    const resourceId = id.slice(0, separator);
+    const toolName = decodeURIComponent(id.slice(separator + 1));
+    if (!resourceId || !toolName) return undefined;
+    return { resourceId, toolName };
+  } catch {
+    return undefined;
+  }
+}
+
+export function catalogApprovalConnectorId(wrapperToolName: string): string {
+  return wrapperToolName.endsWith("_execute_tool")
+    ? wrapperToolName.slice(0, -"_execute_tool".length)
+    : wrapperToolName;
+}
+
+export function catalogApprovalMatchesLiveRoute(
+  catalog: { toolName: string; args: Record<string, unknown> },
+  liveRoute: BoundApprovalRoute | undefined,
+): boolean {
+  const target = parseCatalogApprovalTarget(catalog.args);
+  return Boolean(
+    liveRoute &&
+      target &&
+      liveRoute.connectorId === catalogApprovalConnectorId(catalog.toolName) &&
+      liveRoute.resourceId === target.resourceId &&
+      liveRoute.toolName === target.toolName,
+  );
+}
+
+export function catalogApprovalInnerArgs(catalog: {
+  args: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  const inner = catalog.args.arguments;
+  if (!inner || typeof inner !== "object" || Array.isArray(inner)) return undefined;
+  return inner as Record<string, unknown>;
 }
 
 export function approvalPausedToolResult(): ApprovalPausedToolResult {
