@@ -139,7 +139,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
     call: ConnectorCall,
     context: AdapterContext,
   ): Promise<{ call: ConnectorCall; tool: ConnectorTool } | undefined> {
-    if (call.route?.toolName !== CATALOG_EXECUTE) return undefined;
+    if (call.route?.resourceId || call.route?.toolName !== CATALOG_EXECUTE) return undefined;
     return resolveCatalogCall(call, catalogEntries(await this.authorizedTools(context)));
   }
 
@@ -209,6 +209,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
   async *execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent> {
     if (
       call.route?.connectorId === "installed" &&
+      !call.route.resourceId &&
       (call.route.toolName === CATALOG_SEARCH ||
         call.route.toolName === CATALOG_LOAD ||
         call.route.toolName === CATALOG_EXECUTE)

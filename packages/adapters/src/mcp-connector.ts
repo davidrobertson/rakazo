@@ -98,7 +98,7 @@ export class McpConnector implements ConnectorProvider {
     call: ConnectorCall,
     context: AdapterContext,
   ): Promise<{ call: ConnectorCall; tool: ConnectorTool } | undefined> {
-    if (call.route?.toolName !== CATALOG_EXECUTE) return undefined;
+    if (call.route?.resourceId || call.route?.toolName !== CATALOG_EXECUTE) return undefined;
     return resolveCatalogCall(call, catalogEntries(await this.authorizedTools(context)));
   }
 
@@ -155,9 +155,10 @@ export class McpConnector implements ConnectorProvider {
       return;
     }
     if (
-      call.route.toolName === CATALOG_SEARCH ||
-      call.route.toolName === CATALOG_LOAD ||
-      call.route.toolName === CATALOG_EXECUTE
+      !call.route.resourceId &&
+      (call.route.toolName === CATALOG_SEARCH ||
+        call.route.toolName === CATALOG_LOAD ||
+        call.route.toolName === CATALOG_EXECUTE)
     ) {
       try {
         const entries = catalogEntries(await this.authorizedTools(context));

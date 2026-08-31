@@ -245,6 +245,44 @@ describe("MCP connector session cache", () => {
     await connector.close();
   });
 
+  it("executes authoritative MCP tools whose names match catalog controls", async () => {
+    const state = {
+      failNext: false,
+      initializations: 0,
+      calls: [] as string[],
+      tools: ["__catalog_search", "__catalog_load", "__catalog_execute"].map((name) => ({
+        name,
+        inputSchema: { type: "object" },
+      })),
+    };
+    vi.stubGlobal("fetch", mcpFetch(state));
+    const prisma = {
+      botMcpServer: {
+        findMany: vi.fn().mockResolvedValue([ASSIGNMENT]),
+        findFirst: vi.fn().mockResolvedValue(ASSIGNMENT),
+      },
+    };
+    const connector = new McpConnector(prisma as never, {} as never, {
+      network: { resolveHostname: async () => [{ address: "203.0.113.10", family: 4 }] },
+    });
+    const context = {
+      workspaceId: "w1",
+      userId: "u1",
+      botId: "bot-1",
+      signal: new AbortController().signal,
+    } as never;
+
+    for (const tool of await connector.discoverTools(context)) {
+      const call = { tool: tool.name, args: {}, executionId: tool.name, route: tool.route };
+      await expect(connector.resolveCall(call, context)).resolves.toBeUndefined();
+      const events = [];
+      for await (const event of connector.execute(call, context)) events.push(event);
+      expect(events).toMatchObject([{ type: "result" }]);
+    }
+    expect(state.calls).toEqual(["__catalog_search", "__catalog_load", "__catalog_execute"]);
+    await connector.close();
+  });
+
   it("connects to an explicitly configured localhost HTTP server", async () => {
     const state = { failNext: false, initializations: 0 };
     const localAssignment = {
