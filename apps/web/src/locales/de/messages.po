@@ -2914,7 +2914,7 @@ msgid "Finished."
 msgstr "Fertig."
 
 #: src/pages/AccountSettingsOverlay.tsx
-msgid "Add instructions that should apply to every bot on the team"
+msgid "Applies to every bot"
 msgstr ""
 
 #: src/pages/AccountSettingsOverlay.tsx
@@ -2937,6 +2937,3 @@ msgstr ""
 msgid "Team instructions"
 msgstr ""
 
-#: src/pages/AccountSettingsOverlay.tsx
-msgid "These instructions are added before every bot's individual instructions."
-msgstr ""

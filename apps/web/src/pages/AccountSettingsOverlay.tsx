@@ -175,9 +175,6 @@ export function AccountSettingsOverlay({
           <h3 className="text-[15px] font-medium text-[#ECECEE]">
             <Trans>Team instructions</Trans>
           </h3>
-          <p className="mt-2 text-[12.5px] text-[#7A7A80]">
-            <Trans>These instructions are added before every bot's individual instructions.</Trans>
-          </p>
           <textarea
             value={teamInstructions}
             onChange={(event) => {
@@ -190,7 +187,7 @@ export function AccountSettingsOverlay({
             disabled={teamInstructionsStatus === "loading" || teamInstructionsStatus === "saving"}
             aria-label={t`Team instructions`}
             className="mt-3 w-full resize-y rounded-[12px] border border-[#303034] bg-[#0B0B0D] px-3 py-2.5 text-[13.5px] leading-5 text-[#ECECEE] outline-none focus:border-[#5A5A62] disabled:opacity-50"
-            placeholder={t`Add instructions that should apply to every bot on the team`}
+            placeholder={t`Applies to every bot`}
           />
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[12px] text-[#7A7A80]" role="status">

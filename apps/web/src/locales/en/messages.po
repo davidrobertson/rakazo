@@ -2914,8 +2914,8 @@ msgid "Finished."
 msgstr "Finished."
 
 #: src/pages/AccountSettingsOverlay.tsx
-msgid "Add instructions that should apply to every bot on the team"
-msgstr "Add instructions that should apply to every bot on the team"
+msgid "Applies to every bot"
+msgstr "Applies to every bot"
 
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Couldn't load team instructions"
@@ -2936,7 +2936,3 @@ msgstr "Only workspace owners can edit team instructions."
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Team instructions"
 msgstr "Team instructions"
-
-#: src/pages/AccountSettingsOverlay.tsx
-msgid "These instructions are added before every bot's individual instructions."
-msgstr "These instructions are added before every bot's individual instructions."
