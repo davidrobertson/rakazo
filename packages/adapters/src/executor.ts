@@ -312,6 +312,18 @@ export function composeBotInstructions(teamInstructions: string, botInstructions
 ${botInstructions}`;
 }
 
+function createSelectedToolDispatcher(
+  selectedToolNames: ReadonlySet<string>,
+  dispatch: (name: string, args: Record<string, unknown>, executionId: string) => Promise<unknown>,
+) {
+  return async (name: string, args: Record<string, unknown>, executionId: string) => {
+    if (!selectedToolNames.has(name)) {
+      return { error: `Tool "${name}" is not available for this run.` };
+    }
+    return dispatch(name, args, executionId);
+  };
+}
+
 export function isProtectedComputerLifecycleCommand(command: string): boolean {
   const words = tokenizeProtectedShellCommand(command);
   if (words === "dynamic") return true;
@@ -1069,6 +1081,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           return autoReviewPreferencePromise;
         };
         const tools = [...builtins, ...exposedConnectorTools];
+        const selectedToolNames = new Set(tools.map((tool) => tool.name));
         const approvedEffects = await deps.prisma.externalEffect.findMany({
           where: { runId, status: "approved" },
           orderBy: APPROVED_EFFECT_REPLAY_ORDER,
@@ -1152,7 +1165,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           return secretPausedToolResult();
         };
 
-        const applyTool = async (
+        const dispatchTool = async (
           name: string,
           args: Record<string, unknown>,
           executionId: string,
@@ -2390,6 +2403,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           }
           return finish({ error: `unknown tool ${name}` });
         };
+        const applyTool = createSelectedToolDispatcher(selectedToolNames, dispatchTool);
 
         const pluginLine =
           connectedPlugins.length > 0
