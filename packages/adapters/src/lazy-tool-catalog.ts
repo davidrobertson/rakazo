@@ -150,9 +150,7 @@ export function searchCatalog(
   const groupFilter = String(args.group ?? "")
     .slice(0, MAX_GROUP_LENGTH)
     .trim();
-  const scoped = groupFilter
-    ? entries.filter((entry) => entry.group.toLowerCase() === groupFilter.toLowerCase())
-    : entries;
+  const scoped = groupFilter ? entries.filter((entry) => entry.group === groupFilter) : entries;
 
   if (!query) {
     if (groupFilter) {

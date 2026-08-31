@@ -159,6 +159,37 @@ describe("lazy tool catalog", () => {
     });
   });
 
+  it("keeps case-distinct group labels separate when filtering", () => {
+    const mixed = [
+      ...tools(2, "Gmail").map((tool, index) => ({
+        ...tool,
+        name: `Upper_${index}`,
+        route: { ...tool.route!, toolName: `Upper_${index}` },
+      })),
+      ...tools(2, "gmail").map((tool, index) => ({
+        ...tool,
+        name: `lower_${index}`,
+        route: { ...tool.route!, toolName: `lower_${index}` },
+      })),
+    ];
+    const entries = catalogEntries(mixed);
+    expect(searchCatalog(entries, { group: "Gmail" })).toEqual({
+      group: "Gmail",
+      names: ["Upper_0", "Upper_1"],
+    });
+    expect(searchCatalog(entries, { group: "gmail" })).toEqual({
+      group: "gmail",
+      names: ["lower_0", "lower_1"],
+    });
+    const listed = searchCatalog(entries, {});
+    expect("index" in listed && listed.index).toEqual(
+      [
+        { group: "Gmail", names: ["Upper_0", "Upper_1"] },
+        { group: "gmail", names: ["lower_0", "lower_1"] },
+      ].sort((left, right) => left.group.localeCompare(right.group)),
+    );
+  });
+
   it("returns a group count when expanding an over-budget source", () => {
     const oversized = Array.from({ length: NAME_INDEX_MAX_NAMES + 5 }, (_, index) => ({
       name: `tool_${index}`,
