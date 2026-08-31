@@ -215,6 +215,7 @@ export function approvalReplayPathError(
 }
 
 /** Bound direct approvals must match the live connector resource on every replay.
+ * Catalog approvals must match the approved target (and revision when persisted).
  * Legacy unbound direct approvals only fail closed when reached via catalog remap. */
 export function approvalReplayResourceError(
   toolName: string,
@@ -223,7 +224,14 @@ export function approvalReplayResourceError(
   liveRoute: BoundApprovalRoute | undefined,
   marker: string,
 ): string | undefined {
-  if (catalogApprovalDetails(approvedRequest, marker)) return undefined;
+  const catalog = catalogApprovalDetails(approvedRequest, marker);
+  if (catalog) {
+    if (!liveRoute) return undefined;
+    if (!catalogApprovalMatchesLiveRoute(catalog, liveRoute)) {
+      return `Approved request ${toolName} was for a different connector resource.`;
+    }
+    return undefined;
+  }
   const bound = boundDirectApprovalDetails(approvedRequest, marker);
   if (!bound) {
     if (catalogRemapped) {
@@ -276,13 +284,19 @@ export function catalogApprovalMatchesLiveRoute(
   // Legacy catalog approvals without a bound route cannot prove revision identity.
   if (liveRoute?.resourceRevision !== undefined) return false;
   const target = parseCatalogApprovalTarget(catalog.args);
-  return Boolean(
-    liveRoute &&
-      target &&
-      liveRoute.connectorId === catalogApprovalConnectorId(catalog.toolName) &&
-      liveRoute.resourceId === target.resourceId &&
-      liveRoute.toolName === target.toolName,
-  );
+  if (
+    !liveRoute ||
+    !target ||
+    liveRoute.connectorId !== catalogApprovalConnectorId(catalog.toolName) ||
+    liveRoute.resourceId !== target.resourceId ||
+    liveRoute.toolName !== target.toolName
+  ) {
+    return false;
+  }
+  // Persist revision when available so OAuth reauth (revision bump) cannot replay.
+  // Legacy envelopes without resourceRevision keep matching on connector/resource/tool.
+  if (!Object.hasOwn(catalog.args, "resourceRevision")) return true;
+  return catalog.args.resourceRevision === liveRoute.resourceRevision;
 }
 
 export function catalogApprovalInnerArgs(catalog: {

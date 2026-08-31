@@ -8,6 +8,7 @@ import {
   approvedReplayArgs,
   boundDirectApprovalRequest,
   catalogApprovalDetails,
+  catalogApprovalMatchesLiveRoute,
   catalogApprovalRequest,
   claimApprovedEffect,
   claimIntendedEffect,
@@ -178,6 +179,51 @@ describe("approved effect replay", () => {
     expect(approvalReplayPathError("notes.write", true, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", false, direct, marker)).toBeUndefined();
     expect(approvalReplayPathError("notes.write", true, catalog, marker)).toBeUndefined();
+  });
+
+  it("rejects catalog shrink replay after an MCP revision bump", () => {
+    const marker = "__rakazoCatalogTool";
+    const catalog = catalogApprovalRequest(
+      "mcp_execute_tool",
+      {
+        id: "server-1:send",
+        arguments: { text: "approved" },
+        resourceRevision: 1,
+      },
+      marker,
+    );
+    const same = {
+      connectorId: "mcp",
+      resourceId: "server-1",
+      toolName: "send",
+      resourceRevision: 1,
+    };
+    const reauthed = { ...same, resourceRevision: 2 };
+    const legacy = catalogApprovalRequest(
+      "mcp_execute_tool",
+      { id: "server-1:send", arguments: { text: "legacy" } },
+      marker,
+    );
+
+    expect(catalogApprovalMatchesLiveRoute(catalogApprovalDetails(catalog, marker)!, same)).toBe(
+      true,
+    );
+    expect(
+      catalogApprovalMatchesLiveRoute(catalogApprovalDetails(catalog, marker)!, reauthed),
+    ).toBe(false);
+    expect(approvalReplayPathError("mcp__demo__send", false, catalog, marker, reauthed)).toMatch(
+      /catalog execute tool/,
+    );
+    expect(
+      approvalReplayResourceError("mcp__demo__send", false, catalog, reauthed, marker),
+    ).toMatch(/different connector resource/);
+    expect(
+      approvalReplayResourceError("mcp__demo__send", true, catalog, same, marker),
+    ).toBeUndefined();
+    // Legacy envelopes without revision still match connector/resource/tool only.
+    expect(catalogApprovalMatchesLiveRoute(catalogApprovalDetails(legacy, marker)!, reauthed)).toBe(
+      true,
+    );
   });
 
   it("replays a bound direct approval through catalog only on the same resource", () => {
