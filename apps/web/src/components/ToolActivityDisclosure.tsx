@@ -14,7 +14,7 @@ export function ToolSteps({
       {steps.map((step, index) => {
         const isCurrent = index === currentIndex;
         return (
-          <div key={index} className="flex items-center gap-2">
+          <div key={index} className="flex min-w-0 items-center gap-2">
             <span
               className="text-[13px]"
               style={{
@@ -25,7 +25,7 @@ export function ToolSteps({
               {isCurrent ? "◷" : "✓"}
             </span>
             <span
-              className="truncate text-[14px]"
+              className="min-w-0 flex-1 truncate text-[14px]"
               style={{ color: isCurrent ? "#DFDFE2" : "#85858A" }}
             >
               {step.label}
