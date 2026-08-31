@@ -47,14 +47,30 @@ export function createApprovedEffectReplayQueue(
   };
 }
 
+export function isCatalogApprovalRequest(
+  request: Record<string, unknown> | undefined,
+  marker: string,
+): boolean {
+  // Require the full lazy catalog envelope so a direct tool argument named like the
+  // internal marker cannot be mistaken for a catalog wrapper approval.
+  return Boolean(
+    request &&
+      typeof request[marker] === "string" &&
+      typeof request.id === "string" &&
+      request.arguments != null &&
+      typeof request.arguments === "object" &&
+      !Array.isArray(request.arguments),
+  );
+}
+
 export function approvedCatalogReplay(
   queue: ApprovedEffectReplayQueue,
   toolName: string,
   marker: string,
 ): { args?: Record<string, unknown>; error?: string } {
   const pending = queue.nextRequest();
-  const approvedTool = pending?.[marker];
-  if (typeof approvedTool !== "string") return {};
+  if (!isCatalogApprovalRequest(pending, marker)) return {};
+  const approvedTool = pending![marker];
   if (approvedTool !== toolName) {
     return { error: `Approved request ${approvedTool} must be replayed before ${toolName}.` };
   }
@@ -68,7 +84,7 @@ export function approvedReplayArgs(
   resolvedArgs: Record<string, unknown>,
   marker: string,
 ): Record<string, unknown> {
-  return typeof approvedRequest[marker] === "string" ? resolvedArgs : approvedRequest;
+  return isCatalogApprovalRequest(approvedRequest, marker) ? resolvedArgs : approvedRequest;
 }
 
 export function approvalPausedToolResult(): ApprovalPausedToolResult {

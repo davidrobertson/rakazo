@@ -85,6 +85,25 @@ describe("executor approval replay", () => {
     expect(continuation).not.toContain("__rakazoCatalogTool");
   });
 
+  it("keeps a direct-tool argument named like the catalog marker in continuation JSON", () => {
+    const continuation = buildApprovalContinuation(
+      [
+        {
+          kind: "notes.write",
+          request: {
+            text: "approved exactly",
+            __rakazoCatalogTool: "not-a-wrapper",
+          },
+        },
+      ],
+      JSON.stringify,
+    );
+
+    expect(continuation).toContain(
+      'notes.write: {"text":"approved exactly","__rakazoCatalogTool":"not-a-wrapper"}',
+    );
+  });
+
   it("pins lazy approval replay to the approved source when tool names collide", () => {
     const effects = [
       {

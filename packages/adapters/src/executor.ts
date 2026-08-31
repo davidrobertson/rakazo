@@ -91,6 +91,7 @@ import {
   claimIntendedEffect,
   completeExternalEffect,
   createApprovedEffectReplayQueue,
+  isCatalogApprovalRequest,
   isToolPauseResult,
   replaceCompletedExternalEffectResult,
   resolveDuplicateEffectGate,
@@ -441,10 +442,9 @@ export function buildApprovalContinuation(
       const request = effect.request;
       if (request && typeof request === "object" && !Array.isArray(request)) {
         const record = request as Record<string, unknown>;
-        const catalogTool = record[CATALOG_APPROVAL_TOOL];
-        if (typeof catalogTool === "string") {
+        if (isCatalogApprovalRequest(record, CATALOG_APPROVAL_TOOL)) {
           const { [CATALOG_APPROVAL_TOOL]: _internal, ...runtimeArgs } = record;
-          return `${catalogTool}: ${formatRequest(runtimeArgs)}`;
+          return `${String(record[CATALOG_APPROVAL_TOOL])}: ${formatRequest(runtimeArgs)}`;
         }
       }
       return `${effect.kind}: ${formatRequest(request)}`;
