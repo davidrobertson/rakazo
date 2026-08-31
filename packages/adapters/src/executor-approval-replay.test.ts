@@ -7,9 +7,37 @@ import {
   createApprovedEffectReplayQueue,
 } from "./approval-effect.js";
 import { APPROVED_EFFECT_REPLAY_ORDER, buildApprovalContinuation } from "./executor.js";
-import { catalogEntries, resolveCatalogCall } from "./lazy-tool-catalog.js";
+import {
+  catalogEntries,
+  disambiguateInstalledToolNames,
+  resolveCatalogCall,
+} from "./lazy-tool-catalog.js";
 
 describe("executor approval replay", () => {
+  it.each([
+    ["MCP", "install-mcp", "notes.write"],
+    ["API", "install-api", "createContact"],
+  ])("replays a pre-namespaced installed %s approval", (_kind, resourceId, toolName) => {
+    const [tool] = disambiguateInstalledToolNames([
+      {
+        name: toolName,
+        description: toolName,
+        inputSchema: { type: "object" },
+        route: { connectorId: "installed", resourceId, toolName },
+      },
+    ]);
+    const request = {
+      id: `${resourceId}:${toolName}`,
+      arguments: {},
+      __rakazoCatalogTool: "installed_execute_tool",
+    };
+    const queue = createApprovedEffectReplayQueue([{ kind: toolName, request }]);
+
+    expect(tool!.name).toBe(toolName);
+    expect(queue.take(tool!.name)).toEqual(request);
+    expect(queue.assertDrained).not.toThrow();
+  });
+
   it("lists and replays every approved request in FIFO order when a tool repeats", () => {
     const effects = [
       { kind: "destination.write", request: { sequence: 1 } },
