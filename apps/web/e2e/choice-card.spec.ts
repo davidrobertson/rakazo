@@ -7,13 +7,11 @@ test("renders tappable choice buttons and submits the offered action id", async 
   const stamp = Date.now();
   await signup(page, `choice-card-${stamp}@rakazo.test`, "password12", "Choice Card");
   await completeOnboarding(page);
-  await page.goto("/app");
-  await page.waitForURL(/\/app\/[^/]+$/);
 
   const botId = activeBotId(page);
-  const composer = page.getByRole("textbox", { name: /Message/ });
+  const composer = page.getByPlaceholder(/Message/);
   await composer.fill("pick from these cities with tappable choices");
-  await composer.press("Enter");
+  await page.keyboard.press("Enter");
 
   await expect
     .poll(
@@ -27,10 +25,11 @@ test("renders tappable choice buttons and submits the offered action id", async 
     )
     .toBe("waiting_input");
 
+  // threads/get can observe waiting_input before the shell realtime feed paints the ask card.
   const prompt = page.locator("p").filter({ hasText: /^Which city should I use\?$/ });
   if ((await prompt.count()) === 0) {
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(composer).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByPlaceholder(/Message/)).toBeVisible({ timeout: 15_000 });
   }
   await expect(prompt).toBeVisible({ timeout: 15_000 });
 
