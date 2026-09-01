@@ -3860,7 +3860,9 @@ export async function loadCurrentTurnImages(
         mimeType: block.mimeType as "image/jpeg" | "image/png" | "image/webp" | "image/gif",
         data: bytes,
       });
-    } catch {}
+    } catch (error) {
+      if (context.signal.aborted) throw error;
+    }
   }
 
   return images.length ? images : undefined;
