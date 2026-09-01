@@ -68,11 +68,17 @@ describe("InMemoryJobQueue", () => {
     await queue.close();
   });
 
-  it("waits for an active handler before closing", async () => {
+  it.each([
+    ["stop", "stop"],
+    ["close", "close"],
+    ["stop", "close"],
+    ["close", "stop"],
+  ] as const)("waits for an active handler before %s/%s", async (first, second) => {
     const queue = new InMemoryJobQueue();
     let releaseHandler: () => void = () => undefined;
     let markStarted: () => void = () => undefined;
     let nestedEnqueueFailed = false;
+    let delayedEnqueueFailed = false;
     const started = new Promise<void>((resolve) => {
       markStarted = resolve;
     });
@@ -83,16 +89,35 @@ describe("InMemoryJobQueue", () => {
         releaseHandler = resolve;
       });
       try {
-        await queue.enqueue({ name: "computer.sleep", payload: { computerId: "computer-1" } });
+        await queue.enqueue({
+          name: "computer.sleep",
+          payload: { computerId: "computer-1" },
+          replaceKey: "keep-during-close",
+        });
+        await queue.enqueue({
+          name: "computer.sleep",
+          payload: { computerId: "cancelled-computer" },
+          replaceKey: "cancel-during-close",
+        });
+        await queue.cancel("cancel-during-close");
       } catch {
         nestedEnqueueFailed = true;
+      }
+      try {
+        await queue.enqueue({
+          name: "routine.wakeup",
+          payload: { routineId: "routine-1", scheduledFor: "2099-01-01T00:00:00.000Z" },
+          availableAt: new Date("2099-01-01T00:00:00.000Z"),
+        });
+      } catch {
+        delayedEnqueueFailed = true;
       }
     });
     await queue.start(target);
     await queue.enqueue({ name: "run.continue", payload: { runId: "run-1" } });
     await started;
 
-    const closing = queue.close();
+    const closing = Promise.all([queue[first](), queue[second]()] as const);
     const closeState = await Promise.race([
       closing.then(() => "closed" as const),
       new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 5)),
@@ -101,5 +126,35 @@ describe("InMemoryJobQueue", () => {
     await closing;
     expect(closeState).toBe("waiting");
     expect(nestedEnqueueFailed).toBe(false);
+    expect(delayedEnqueueFailed).toBe(false);
+    expect(target["computer.sleep"]).toHaveBeenCalledTimes(1);
+    expect(target["routine.wakeup"]).not.toHaveBeenCalled();
+    await queue.close();
+  });
+
+  it("rejects a keyed enqueue that resumes after close", async () => {
+    const queue = new InMemoryJobQueue();
+    let releaseCancel: () => void = () => undefined;
+    let markCancelling: () => void = () => undefined;
+    const cancelling = new Promise<void>((resolve) => {
+      markCancelling = resolve;
+    });
+    vi.spyOn(queue, "cancel").mockImplementationOnce(async () => {
+      markCancelling();
+      await new Promise<void>((resolve) => {
+        releaseCancel = resolve;
+      });
+    });
+
+    const enqueue = queue.enqueue({
+      name: "computer.sleep",
+      payload: { computerId: "computer-1" },
+      replaceKey: "computer:computer-1",
+    });
+    await cancelling;
+    await queue.close();
+    releaseCancel();
+
+    await expect(enqueue).rejects.toThrow("Background job publisher is closed");
   });
 });

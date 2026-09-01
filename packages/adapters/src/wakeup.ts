@@ -82,13 +82,26 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private readonly keyed = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly active = new Set<Promise<void>>();
+  private readonly closingJobs: BackgroundJob[] = [];
+  private draining: Promise<void> | undefined;
   private closed = false;
   private closing = false;
+  private closeRequested = false;
 
   async enqueue(job: BackgroundJob): Promise<void> {
     if (this.closed) throw new Error("Background job publisher is closed");
-    if (this.closing) return;
-    if (job.replaceKey) await this.cancel(job.replaceKey);
+    if (this.closing) {
+      this.enqueueWhileClosing(job);
+      return;
+    }
+    if (job.replaceKey) {
+      await this.cancel(job.replaceKey);
+      if (this.closed) throw new Error("Background job publisher is closed");
+      if (this.closing) {
+        this.enqueueWhileClosing(job);
+        return;
+      }
+    }
     const delay = job.availableAt ? Math.max(0, job.availableAt.getTime() - Date.now()) : 0;
     const timer = setTimeout(() => {
       this.timers.delete(timer);
@@ -97,21 +110,19 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
       }
       const handlers = this.handlers;
       if (!handlers) return;
-      const active = dispatchBackgroundJob(handlers, job.name, job.payload).catch((error) => {
-        console.error(job.name, error);
-      });
-      this.active.add(active);
-      void active.finally(() => this.active.delete(active));
+      void this.dispatch(handlers, job);
     }, delay);
     this.timers.add(timer);
     if (job.replaceKey) this.keyed.set(job.replaceKey, timer);
   }
 
-  async cancel(key: string): Promise<void> {
-    const timer = this.keyed.get(key);
+  async cancel(replaceKey: string): Promise<void> {
+    const closing = this.closingJobs.findIndex((job) => job.replaceKey === replaceKey);
+    if (closing >= 0) this.closingJobs.splice(closing, 1);
+    const timer = this.keyed.get(replaceKey);
     if (!timer) return;
     clearTimeout(timer);
-    this.keyed.delete(key);
+    this.keyed.delete(replaceKey);
     this.timers.delete(timer);
   }
 
@@ -120,18 +131,61 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
   }
 
   async stop(): Promise<void> {
-    this.handlers = undefined;
-    for (const timer of this.timers) clearTimeout(timer);
-    this.timers.clear();
-    this.keyed.clear();
-    await Promise.all(this.active);
+    await this.drain();
+  }
+
+  private dispatch(handlers: BackgroundJobHandlers, job: BackgroundJob): Promise<void> {
+    const active = dispatchBackgroundJob(handlers, job.name, job.payload).catch((error) => {
+      console.error(job.name, error);
+    });
+    this.active.add(active);
+    void active.finally(() => this.active.delete(active));
+    return active;
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
+    this.closeRequested = true;
+    await this.drain();
+  }
+
+  private enqueueWhileClosing(job: BackgroundJob): void {
+    if (job.replaceKey) {
+      const existing = this.closingJobs.findIndex((queued) => queued.replaceKey === job.replaceKey);
+      if (existing >= 0) this.closingJobs.splice(existing, 1);
+    }
+    if (job.availableAt && job.availableAt.getTime() > Date.now()) {
+      // Delayed in-memory jobs are intentionally discarded on shutdown; durable
+      // schedulers reconcile them after restart. Never run them early.
+      return;
+    }
+    this.closingJobs.push(job);
+  }
+
+  private async drain(): Promise<void> {
+    if (this.draining) return this.draining;
+    const draining = this.performDrain();
+    this.draining = draining;
+    try {
+      await draining;
+    } finally {
+      if (this.draining === draining) this.draining = undefined;
+    }
+  }
+
+  private async performDrain(): Promise<void> {
     this.closing = true;
-    await this.stop();
-    this.closed = true;
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers.clear();
+    this.keyed.clear();
+    while (this.active.size > 0 || this.closingJobs.length > 0) {
+      await Promise.all(this.active);
+      const handlers = this.handlers;
+      if (!handlers) throw new Error("Background job publisher is closing");
+      for (const job of this.closingJobs.splice(0)) void this.dispatch(handlers, job);
+    }
+    this.handlers = undefined;
+    this.closed = this.closeRequested;
     this.closing = false;
   }
 }
