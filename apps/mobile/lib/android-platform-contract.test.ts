@@ -149,6 +149,18 @@ describe("Android mobile platform contract", () => {
     expect(scroll).toContain('this.contentReady && !this.currentState.detached ? "jump" : null');
   });
 
+  it("hands native tool disclosure focus to the durable completion control", () => {
+    const thread = readFileSync(resolve(mobileRoot, "app/thread.tsx"), "utf8");
+    expect(thread).toContain("AccessibilityInfo");
+    expect(thread).toContain("findNodeHandle");
+    expect(thread).toMatch(
+      /focusKey=\{message\.runId \? `\$\{message\.runId\}:\$\{index\}` : undefined\}/,
+    );
+    expect(thread).toContain("pendingToolActivityFocusKey === focusKey");
+    expect(thread).toContain("control.focus()");
+    expect(thread).toContain("AccessibilityInfo.setAccessibilityFocus(handle)");
+  });
+
   it("stacks every currently working agent in a group footer", () => {
     const thread = readFileSync(resolve(mobileRoot, "app/thread.tsx"), "utf8");
     expect(thread).toContain("workingGroupBots.map");

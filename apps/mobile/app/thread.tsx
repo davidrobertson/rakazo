@@ -28,10 +28,12 @@ import { Link, useFocusEffect, useLocalSearchParams, useNavigation, useRouter } 
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   AppState,
   FlatList,
+  findNodeHandle,
   Image,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -102,6 +104,8 @@ import { speakText } from "../lib/voice";
 
 type PendingAttachment = PickedAttachment & { threadKey: string };
 type AskAction = NonNullable<Extract<MessageBlock, { kind: "ask" }>["actions"]>[number];
+
+let pendingToolActivityFocusKey: string | undefined;
 
 function newClientNonce(): string {
   const webCrypto = globalThis.crypto;
@@ -2295,6 +2299,7 @@ const MessageBubble = memo(function MessageBubble({
           <ExpandableToolBlock
             key={`${message.id}-${message.id.startsWith("progress:") ? "working" : "actions"}-${index}`}
             block={segment.block}
+            focusKey={message.runId ? `${message.runId}:${index}` : undefined}
             live={message.id.startsWith("progress:")}
           />
         ) : (
@@ -2411,12 +2416,35 @@ function AgentEventLabel({
 
 function ExpandableToolBlock({
   block,
+  focusKey,
   live,
 }: {
   block: Extract<MessageBlock, { kind: "progress" | "steps" }>;
+  focusKey?: string;
   live: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const controlRef = useRef<View>(null);
+  const focused = useRef(false);
+  useLayoutEffect(() => {
+    if (focusKey && pendingToolActivityFocusKey === focusKey) {
+      pendingToolActivityFocusKey = undefined;
+      requestAnimationFrame(() => {
+        const control = controlRef.current;
+        if (!control) return;
+        control.focus();
+        const handle = findNodeHandle(control);
+        if (handle !== null) AccessibilityInfo.setAccessibilityFocus(handle);
+      });
+    }
+    return () => {
+      if (!focusKey || !focused.current) return;
+      pendingToolActivityFocusKey = focusKey;
+      requestAnimationFrame(() => {
+        if (pendingToolActivityFocusKey === focusKey) pendingToolActivityFocusKey = undefined;
+      });
+    };
+  }, [focusKey]);
   const provider =
     block.kind === "progress" ? /^Using\s+([^:]+)/i.exec(block.text)?.[1] : undefined;
   const tools =
@@ -2442,10 +2470,17 @@ function ExpandableToolBlock({
       }}
     >
       <Pressable
+        ref={controlRef}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityState={accessibilityState}
         hitSlop={10}
+        onBlur={() => {
+          focused.current = false;
+        }}
+        onFocus={() => {
+          focused.current = true;
+        }}
         onPress={() => setExpanded((current) => !current)}
         style={{
           flexDirection: "row",

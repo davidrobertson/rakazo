@@ -123,8 +123,11 @@ test("production chat renders persisted tool duration in every disclosure state"
     await expect(live.locator("summary")).toHaveText("Working…");
     await expect(live).not.toHaveAttribute("open", "");
     await captureScreenshot(page, testInfo, `shell-live-collapsed-${viewport.name}`);
-    await live.locator("summary").click();
+    await live.locator("summary").focus();
+    await page.keyboard.press("Enter");
     await expect(live).toHaveAttribute("open", "");
+    await expect(live.locator("summary")).toBeFocused();
+    await captureScreenshot(page, testInfo, `shell-live-expanded-${viewport.name}`);
 
     mode = "legacy";
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -138,9 +141,12 @@ test("production chat renders persisted tool duration in every disclosure state"
   mode = "completed";
   await page.evaluate(() => localStorage.setItem("rakazo.uiLocale", "de"));
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.getByTestId("tool-activity").last().locator("summary")).toHaveText(
-    `${duration} lang gearbeitet`,
-  );
+  const deDuration = formatDurationMs(persistedSteps.durationMs, "de");
+  const deSpokenDuration = formatDurationMs(persistedSteps.durationMs, "de", "long");
+  if (!deDuration || !deSpokenDuration) throw new Error("persisted duration did not localize");
+  const deSummary = page.getByTestId("tool-activity").last().locator("summary");
+  await expect(deSummary).toHaveText(`${deDuration} lang gearbeitet`);
+  await expect(deSummary).toHaveAttribute("aria-label", `${deSpokenDuration} lang gearbeitet`);
 
   expect(browserErrors).toEqual([]);
 });

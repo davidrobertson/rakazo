@@ -37,6 +37,20 @@ describe("ToolActivityDisclosure", () => {
     expect(html).toContain("Shell ×2");
   });
 
+  it("uses a localized long-form accessible name without changing compact copy", () => {
+    const html = renderToStaticMarkup(
+      <ToolActivityDisclosure
+        accessibleLabel="1 Minute 43 Sekunden lang gearbeitet"
+        live={false}
+        label="1 Min. 43 Sek. lang gearbeitet"
+      >
+        <span>Shell</span>
+      </ToolActivityDisclosure>,
+    );
+    expect(html).toContain('aria-label="1 Minute 43 Sekunden lang gearbeitet"');
+    expect(html).toContain("1 Min. 43 Sek. lang gearbeitet");
+  });
+
   it("collapses again when live work completes", () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -50,11 +50,13 @@ export function ToolSteps({
 export function ToolActivityDisclosure({
   live,
   label,
+  accessibleLabel,
   focusKey,
   children,
 }: {
   live: boolean;
   label: string;
+  accessibleLabel?: string;
   focusKey?: string;
   children: ReactNode;
 }) {
@@ -86,6 +88,7 @@ export function ToolActivityDisclosure({
     >
       <summary
         ref={summaryRef}
+        aria-label={accessibleLabel}
         className={`flex min-h-6 w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 pe-1.5 text-[13px] font-medium outline-none hover:text-[#C9C9CE] focus-visible:ring-2 focus-visible:ring-[#85858A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1A1A1D] ${
           live ? "text-[#C9C9CE]" : "text-[#85858A]"
         }`}

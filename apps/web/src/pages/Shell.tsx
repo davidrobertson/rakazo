@@ -4900,7 +4900,7 @@ const MessageView = memo(function MessageView({
   speaking: boolean;
   onSpeak: () => void;
 }) {
-  const { t } = useLingui();
+  const { i18n, t } = useLingui();
   const isNarration =
     message.role === "bot" &&
     message.blocks.length > 0 &&
@@ -4908,10 +4908,13 @@ const MessageView = memo(function MessageView({
       (block) => block.kind === "text" || block.kind === "progress" || block.kind === "steps",
     );
   const isLive = message.id.startsWith("progress:");
-  const toolActivityLabel = (durationMs?: number) => {
-    if (isLive) return t`Working…`;
-    const duration = formatDurationMs(durationMs);
-    return duration ? t`Worked for ${duration}` : t`Worked`;
+  const toolActivityLabels = (durationMs?: number) => {
+    if (isLive) return { label: t`Working…` };
+    const duration = formatDurationMs(durationMs, i18n.locale);
+    const spokenDuration = formatDurationMs(durationMs, i18n.locale, "long");
+    if (!duration || !spokenDuration) return { label: t`Worked` };
+    const label = t`Worked for ${duration}`;
+    return { label, accessibleLabel: label.replace(duration, spokenDuration) };
   };
   const parentJumpId = replyPreview?.id ?? replyToMessageId;
   const messageContext = (
@@ -4947,12 +4950,14 @@ const MessageView = memo(function MessageView({
             {message.blocks.map((block, i) => {
               if (block.kind === "steps") {
                 const isCurrentBlock = isLive && i === message.blocks.length - 1;
+                const activityLabels = toolActivityLabels(block.durationMs);
                 return (
                   <ToolActivityDisclosure
                     key={i}
+                    accessibleLabel={activityLabels.accessibleLabel}
                     focusKey={message.runId ? `${message.runId}:${i}` : undefined}
                     live={isLive}
-                    label={toolActivityLabel(block.durationMs)}
+                    label={activityLabels.label}
                   >
                     <ToolSteps
                       steps={block.steps}
@@ -5058,6 +5063,7 @@ const MessageView = memo(function MessageView({
           );
         }
         if (block.kind === "steps") {
+          const activityLabels = toolActivityLabels(block.durationMs);
           return (
             <div key={i} className="flex justify-start">
               <div
@@ -5065,9 +5071,10 @@ const MessageView = memo(function MessageView({
                 dir="ltr"
               >
                 <ToolActivityDisclosure
+                  accessibleLabel={activityLabels.accessibleLabel}
                   focusKey={message.runId ? `${message.runId}:${i}` : undefined}
                   live={isLive}
-                  label={toolActivityLabel(block.durationMs)}
+                  label={activityLabels.label}
                 >
                   <ToolSteps
                     steps={block.steps}
