@@ -3159,7 +3159,7 @@ msgstr "Şimdi gönderilen mesajlar bir sonraki adımı yönlendirir."
 
 #: src/pages/Shell.tsx
 msgid "Steer {activeName}"
-msgstr "{activeName} botunu yönlendir"
+msgstr "{activeName} için yönlendir"
 
 #: src/pages/Shell.tsx
 msgid "Send steering message"

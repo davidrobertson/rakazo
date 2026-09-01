@@ -3735,6 +3735,7 @@ export function ShellPage() {
                   aria-label={t`Stop`}
                   data-testid="computer-overlay-stop"
                   onClick={() => void stopRun()}
+                  disabled={sending}
                 >
                   <Trans>Stop</Trans>
                 </Button>

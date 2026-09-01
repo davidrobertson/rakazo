@@ -300,14 +300,16 @@ test("sign-in, spawn, and stop work in the shell", async ({ page }, testInfo) =>
   expect(browserErrors).toEqual([]);
   expect(failedRequests).toEqual([]);
   let releaseStopRequest: () => void = () => undefined;
+  let markStopRequestStarted: () => void = () => undefined;
   const stopRequestStarted = new Promise<void>((resolve) => {
-    void page.route("**/rpc/threads/stop", async (route) => {
-      resolve();
-      await new Promise<void>((release) => {
-        releaseStopRequest = release;
-      });
-      await route.continue();
+    markStopRequestStarted = resolve;
+  });
+  await page.route("**/rpc/threads/stop", async (route) => {
+    markStopRequestStarted();
+    await new Promise<void>((release) => {
+      releaseStopRequest = release;
     });
+    await route.continue();
   });
   await page.getByRole("button", { name: "Stop", exact: true }).click();
   await stopRequestStarted;
