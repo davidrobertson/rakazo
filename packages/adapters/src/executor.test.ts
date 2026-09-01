@@ -5,6 +5,7 @@ import {
   createRunExecutor,
   runNotificationsEnabled,
   selectBuiltinToolsForRun,
+  settleSteeringAttachmentLoads,
   threadContextForRun,
 } from "./executor.js";
 
@@ -33,6 +34,24 @@ describe("run tool selection", () => {
     expect(toolNames("routine", "group-1")).toEqual(
       expect.arrayContaining(["schedule_list", "schedule_cancel"]),
     );
+  });
+});
+
+describe("steering attachment hydration", () => {
+  it("keeps successful attachment parts when another part is unavailable", async () => {
+    const withoutImage = await settleSteeringAttachmentLoads(
+      Promise.reject(new Error("image missing")),
+      Promise.resolve(["attachment.pdf"]),
+    );
+    expect(withoutImage).toMatchObject({ images: undefined, files: ["attachment.pdf"] });
+    expect(withoutImage.unavailableInstruction).toContain("do not guess its contents");
+
+    const withoutFile = await settleSteeringAttachmentLoads(
+      Promise.resolve(["image.png"]),
+      Promise.reject(new Error("file missing")),
+    );
+    expect(withoutFile).toMatchObject({ images: ["image.png"], files: [] });
+    expect(withoutFile.unavailableInstruction).toContain("do not guess its contents");
   });
 });
 

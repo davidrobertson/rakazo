@@ -168,6 +168,33 @@ describe("InMemoryJobQueue", () => {
     await expect(enqueue).rejects.toThrow("Background job publisher is closed");
   });
 
+  it("rejects a keyed enqueue that resumes after stop", async () => {
+    const queue = new InMemoryJobQueue();
+    await queue.start(handlers());
+    let releaseCancel: () => void = () => undefined;
+    let markCancelling: () => void = () => undefined;
+    const cancelling = new Promise<void>((resolve) => {
+      markCancelling = resolve;
+    });
+    vi.spyOn(queue, "cancel").mockImplementationOnce(async () => {
+      markCancelling();
+      await new Promise<void>((resolve) => {
+        releaseCancel = resolve;
+      });
+    });
+
+    const enqueue = queue.enqueue({
+      name: "computer.sleep",
+      payload: { computerId: "computer-1" },
+      replaceKey: "computer:computer-1",
+    });
+    await cancelling;
+    await queue.stop();
+    releaseCancel();
+
+    await expect(enqueue).rejects.toThrow("Background job publisher is stopped");
+  });
+
   it("drains an accepted immediate timer during close", async () => {
     const queue = new InMemoryJobQueue();
     const target = handlers();

@@ -101,6 +101,7 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
     if (job.replaceKey) {
       await this.cancel(job.replaceKey);
       if (this.closed) throw new Error("Background job publisher is closed");
+      if (this.stopped) throw new Error("Background job publisher is stopped");
       if (this.closing) {
         this.enqueueWhileClosing(job);
         return;

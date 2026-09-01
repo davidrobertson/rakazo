@@ -259,6 +259,8 @@ const READ_ONLY_AGENT_TOOLS = new Set([
   "web_fetch",
 ]);
 const MAX_MODEL_FILE_BYTES = 250_000;
+const STEERING_ATTACHMENT_UNAVAILABLE =
+  "An attachment in this steering message could not be loaded. Tell the user the attachment was unavailable and do not guess its contents.";
 const BUILTIN_AGENT_TOOL_NAMES = new Set(builtinAgentTools.map((tool) => tool.name));
 
 const SHELL_INTERPRETER_NAMES = /^(?:bash|sh|dash|zsh|ksh|fish)$/;
@@ -2821,26 +2823,29 @@ export function createRunExecutor(deps: ExecutorDeps) {
                     });
                     return Promise.all(
                       steering.map(async (item) => {
-                        const [images, files] = await Promise.all([
-                          loadCurrentTurnImages(deps, item.blocks, context),
-                          deps.artifacts
-                            ? materializeCurrentTurnFiles(
-                                {
-                                  prisma: deps.prisma,
-                                  artifacts: deps.artifacts,
-                                  sandbox: deps.sandbox,
-                                },
-                                item.blocks,
-                                { context, computer, computerMode },
-                              )
-                            : [],
-                        ]);
+                        const { images, files, unavailableInstruction } =
+                          await settleSteeringAttachmentLoads(
+                            loadCurrentTurnImages(deps, item.blocks, context),
+                            deps.artifacts
+                              ? materializeCurrentTurnFiles(
+                                  {
+                                    prisma: deps.prisma,
+                                    artifacts: deps.artifacts,
+                                    sandbox: deps.sandbox,
+                                  },
+                                  item.blocks,
+                                  { context, computer, computerMode },
+                                )
+                              : Promise.resolve([]),
+                          );
                         const filesInstruction = currentTurnFilesInstruction(files);
                         return {
                           id: item.id,
                           messageId: item.messageId,
                           historyText: item.text,
-                          text: [item.text, filesInstruction].filter(Boolean).join("\n\n"),
+                          text: [item.text, filesInstruction, unavailableInstruction]
+                            .filter(Boolean)
+                            .join("\n\n"),
                           images,
                         };
                       }),
@@ -3485,6 +3490,23 @@ export function completionNotificationBody(assembled: string, blocks: MessageBlo
 
 export function completionMarksUnread(trigger: string, text: string): boolean {
   return trigger !== "routine" || Boolean(text);
+}
+
+export async function settleSteeringAttachmentLoads<TImage, TFile>(
+  images: Promise<TImage[] | undefined>,
+  files: Promise<TFile[]>,
+): Promise<{
+  images: TImage[] | undefined;
+  files: TFile[];
+  unavailableInstruction: string;
+}> {
+  const [loadedImages, loadedFiles] = await Promise.allSettled([images, files]);
+  const unavailable = loadedImages.status === "rejected" || loadedFiles.status === "rejected";
+  return {
+    images: loadedImages.status === "fulfilled" ? loadedImages.value : undefined,
+    files: loadedFiles.status === "fulfilled" ? loadedFiles.value : [],
+    unavailableInstruction: unavailable ? STEERING_ATTACHMENT_UNAVAILABLE : "",
+  };
 }
 
 export function subagentMarksUnread(trigger: string, status: "running" | "completed" | "failed") {
