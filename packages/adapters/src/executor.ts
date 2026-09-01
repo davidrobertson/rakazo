@@ -3099,12 +3099,21 @@ export function createRunExecutor(deps: ExecutorDeps) {
               skipEmptyFallback: publishedTerminalSubagent,
             });
           }
+          const completedAtMs = Date.now();
+          const durationMs =
+            !handedOff && messageSegments.some((block) => block.kind === "steps")
+              ? workedDurationMs(
+                  await deps.prisma.attempt.findMany({
+                    where: { runId },
+                    select: { id: true, startedAt: true, finishedAt: true },
+                  }),
+                  attempt.id,
+                  completedAtMs,
+                )
+              : 0;
           const blocks = handedOff
             ? []
-            : redactBlocks(
-                completedActivityBlocks(messageSegments, runStartedAt.getTime(), Date.now()),
-                runSecrets,
-              );
+            : redactBlocks(completedActivityBlocks(messageSegments, durationMs), runSecrets);
           const text = handedOff
             ? ""
             : redactSecrets(completionNotificationBody(assembled, blocks), runSecrets);
@@ -3408,15 +3417,32 @@ export function completionMessageSegments(
 /** Stamps one turn-level duration without implying that each tool segment took the whole time. */
 export function completedActivityBlocks(
   blocks: MessageBlock[],
-  startedAtMs: number,
-  completedAtMs: number,
+  durationMs: number,
 ): MessageBlock[] {
   const index = blocks.findLastIndex((block) => block.kind === "steps");
   if (index < 0) return blocks;
+  const safeDurationMs = Number.isFinite(durationMs) ? Math.max(0, Math.round(durationMs)) : 0;
   return blocks.map((block, blockIndex) =>
     blockIndex === index && block.kind === "steps"
-      ? { ...block, durationMs: Math.max(0, Math.round(completedAtMs - startedAtMs)) }
+      ? { ...block, durationMs: safeDurationMs }
       : block,
+  );
+}
+
+/** Sums persisted executor-active intervals without counting queue or user-wait gaps. */
+export function workedDurationMs(
+  attempts: Array<{ id: string; startedAt: Date; finishedAt: Date | null }>,
+  currentAttemptId: string,
+  completedAtMs: number,
+): number {
+  return Math.round(
+    attempts.reduce((total, attempt) => {
+      const finishedAtMs =
+        attempt.id === currentAttemptId ? completedAtMs : attempt.finishedAt?.getTime();
+      if (finishedAtMs === undefined) return total;
+      const durationMs = finishedAtMs - attempt.startedAt.getTime();
+      return Number.isFinite(durationMs) ? total + Math.max(0, durationMs) : total;
+    }, 0),
   );
 }
 

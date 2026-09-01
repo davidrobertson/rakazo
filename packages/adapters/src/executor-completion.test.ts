@@ -5,6 +5,7 @@ import {
   completionMessageSegments,
   completionNotificationBody,
   subagentMarksUnread,
+  workedDurationMs,
 } from "./executor.js";
 
 describe("completedActivityBlocks", () => {
@@ -17,8 +18,7 @@ describe("completedActivityBlocks", () => {
           { kind: "steps", steps: [{ label: "Shell", count: 1 }] },
           { kind: "text", text: "Done." },
         ],
-        1_000,
-        104_000,
+        103_000,
       ),
     ).toEqual([
       { kind: "steps", steps: [{ label: "Read file", count: 1 }] },
@@ -30,15 +30,55 @@ describe("completedActivityBlocks", () => {
 
   it("clamps a clock reversal and leaves tool-free completions unchanged", () => {
     expect(
-      completedActivityBlocks(
-        [{ kind: "steps", steps: [{ label: "Shell", count: 1 }] }],
-        2_000,
-        1_000,
-      ),
+      completedActivityBlocks([{ kind: "steps", steps: [{ label: "Shell", count: 1 }] }], -1_000),
     ).toEqual([{ kind: "steps", steps: [{ label: "Shell", count: 1 }], durationMs: 0 }]);
-    expect(completedActivityBlocks([{ kind: "text", text: "Done." }], 1_000, 2_000)).toEqual([
+    expect(completedActivityBlocks([{ kind: "text", text: "Done." }], 1_000)).toEqual([
       { kind: "text", text: "Done." },
     ]);
+  });
+});
+
+describe("workedDurationMs", () => {
+  it("sums active attempts without counting queue or user-wait gaps", () => {
+    expect(
+      workedDurationMs(
+        [
+          {
+            id: "first",
+            startedAt: new Date(1_000),
+            finishedAt: new Date(11_000),
+          },
+          {
+            id: "interrupted-without-finish",
+            startedAt: new Date(20_000),
+            finishedAt: null,
+          },
+          {
+            id: "current",
+            startedAt: new Date(100_000),
+            finishedAt: null,
+          },
+        ],
+        "current",
+        105_000,
+      ),
+    ).toBe(15_000);
+  });
+
+  it("clamps reversed attempt clocks safely", () => {
+    expect(
+      workedDurationMs(
+        [
+          {
+            id: "current",
+            startedAt: new Date(2_000),
+            finishedAt: null,
+          },
+        ],
+        "current",
+        1_000,
+      ),
+    ).toBe(0);
   });
 });
 
