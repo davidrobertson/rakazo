@@ -4950,6 +4950,7 @@ const MessageView = memo(function MessageView({
                 return (
                   <ToolActivityDisclosure
                     key={i}
+                    focusKey={message.runId ? `${message.runId}:${i}` : undefined}
                     live={isLive}
                     label={toolActivityLabel(block.durationMs)}
                   >

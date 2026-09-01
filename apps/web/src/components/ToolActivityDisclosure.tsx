@@ -1,6 +1,8 @@
 import type { ThreadMessage } from "@rakazo/contracts";
 import { ChevronRight } from "lucide-react";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
+
+let pendingDisclosureFocusKey: string | undefined;
 
 export function ToolSteps({
   steps,
@@ -48,16 +50,32 @@ export function ToolSteps({
 export function ToolActivityDisclosure({
   live,
   label,
+  focusKey,
   children,
 }: {
   live: boolean;
   label: string;
+  focusKey?: string;
   children: ReactNode;
 }) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
+  const summaryRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (detailsRef.current) detailsRef.current.open = false;
   }, [live]);
+  useLayoutEffect(() => {
+    if (focusKey && pendingDisclosureFocusKey === focusKey) {
+      pendingDisclosureFocusKey = undefined;
+      summaryRef.current?.focus();
+    }
+    return () => {
+      if (!focusKey || summaryRef.current !== document.activeElement) return;
+      pendingDisclosureFocusKey = focusKey;
+      queueMicrotask(() => {
+        if (pendingDisclosureFocusKey === focusKey) pendingDisclosureFocusKey = undefined;
+      });
+    };
+  }, [focusKey]);
 
   return (
     <details
@@ -67,6 +85,7 @@ export function ToolActivityDisclosure({
       className="group"
     >
       <summary
+        ref={summaryRef}
         className={`flex min-h-6 w-fit cursor-pointer list-none items-center gap-1 rounded-md py-0.5 pe-1.5 text-[13px] font-medium outline-none hover:text-[#C9C9CE] focus-visible:ring-2 focus-visible:ring-[#85858A] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1A1A1D] ${
           live ? "text-[#C9C9CE]" : "text-[#85858A]"
         }`}

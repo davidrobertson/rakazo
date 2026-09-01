@@ -64,4 +64,36 @@ describe("ToolActivityDisclosure", () => {
     root.unmount();
     container.remove();
   });
+
+  it("restores summary focus when completion remounts the message", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const render = (key: string, live: boolean) =>
+      flushSync(() =>
+        root.render(
+          <ToolActivityDisclosure
+            key={key}
+            focusKey="run-1:0"
+            live={live}
+            label={live ? "Working…" : "Worked for 1m 43s"}
+          >
+            <span>Shell ×2</span>
+          </ToolActivityDisclosure>,
+        ),
+      );
+
+    render("progress:run-1", true);
+    const liveSummary = container.querySelector("summary");
+    liveSummary?.focus();
+    liveSummary?.click();
+
+    render("message-1", false);
+    const completedSummary = container.querySelector("summary");
+    expect(completedSummary).not.toBe(liveSummary);
+    expect(container.querySelector("details")?.open).toBe(false);
+    expect(document.activeElement).toBe(completedSummary);
+    root.unmount();
+    container.remove();
+  });
 });
