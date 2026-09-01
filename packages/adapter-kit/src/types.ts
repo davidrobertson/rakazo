@@ -308,6 +308,7 @@ export interface AgentInputImage {
 
 export interface AgentSteeringMessage {
   id: string;
+  messageId: string;
   text: string;
   /** Persisted history text before attachment paths are appended. */
   historyText?: string;
@@ -318,9 +319,10 @@ export interface AgentRunRequest {
   botId: string;
   threadId: string;
   runId: string;
+  sourceMessageId?: string | null;
   prompt: string;
   instructions: string;
-  history: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+  history: Array<{ id?: string; role: "user" | "assistant" | "system"; content: string }>;
   currentTurnImages?: AgentInputImage[];
   tools: ConnectorTool[];
   model: {

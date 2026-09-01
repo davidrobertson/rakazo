@@ -257,6 +257,12 @@ test("sign-in, spawn, and stop work in the shell", async ({ page }, testInfo) =>
   const email = `shell-${stamp}@rakazo.test`;
   await signup(page, email, "password12", "Shell");
   await completeOnboarding(page);
+  await page.evaluate(() => {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: undefined,
+      configurable: true,
+    });
+  });
 
   const composer = page.locator('textarea[name="chat-message"]');
   await composer.fill("spawn a bot named Scout to research venues");
@@ -293,7 +299,21 @@ test("sign-in, spawn, and stop work in the shell", async ({ page }, testInfo) =>
   await page.setViewportSize({ width: 1280, height: 720 });
   expect(browserErrors).toEqual([]);
   expect(failedRequests).toEqual([]);
+  let releaseStopRequest: () => void = () => undefined;
+  const stopRequestStarted = new Promise<void>((resolve) => {
+    void page.route("**/rpc/threads/stop", async (route) => {
+      resolve();
+      await new Promise<void>((release) => {
+        releaseStopRequest = release;
+      });
+      await route.continue();
+    });
+  });
   await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await stopRequestStarted;
+  await expect(page.getByRole("button", { name: "Send steering message" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeDisabled();
+  releaseStopRequest();
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible({ timeout: 30_000 });
 
   await page.context().clearCookies();

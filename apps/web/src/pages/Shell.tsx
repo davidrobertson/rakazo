@@ -1910,7 +1910,7 @@ export function ShellPage() {
       setSendError(null);
       try {
         if (plan.shouldRunRoutines) {
-          const sendNonce = crypto.randomUUID();
+          const sendNonce = newClientNonce();
           await Promise.all(
             plan.routineIds.map((routineId) =>
               rpc.routines.testRun({
@@ -1952,7 +1952,7 @@ export function ShellPage() {
           );
           artifactIds.push(artifact.id);
         }
-        const clientNonce = crypto.randomUUID();
+        const clientNonce = newClientNonce();
         if (groupTarget) {
           await rpc.threads.send({
             groupId: groupTarget,
@@ -2015,52 +2015,57 @@ export function ShellPage() {
     await refreshThreadRef.current(id);
   }, []);
   const stopRun = useCallback(async () => {
-    const botTarget = activeBotId.current;
-    const groupTarget = activeGroupId.current;
-    if (groupTarget) {
+    if (sending) return;
+    setSending(true);
+    try {
+      const botTarget = activeBotId.current;
+      const groupTarget = activeGroupId.current;
+      if (groupTarget) {
+        setSendError(null);
+        try {
+          await rpc.threads.stop({ groupId: groupTarget });
+        } catch (error) {
+          if (activeGroupId.current === groupTarget) {
+            setSendError(error instanceof Error ? error.message : t`Failed to stop`);
+          }
+          return;
+        }
+        // Stop has no terminal event; clear run UI before refresh races with in-flight gets.
+        if (activeGroupId.current === groupTarget) {
+          updateSnapshot((prev) =>
+            prev && prev.groupId === groupTarget ? clearActiveThreadRuns(prev) : prev,
+          );
+        }
+        await refreshGroupThreadRef.current(groupTarget).catch(() => undefined);
+        return;
+      }
+      if (!botTarget) return;
       setSendError(null);
       try {
-        await rpc.threads.stop({ groupId: groupTarget });
+        await rpc.threads.stop({ botId: botTarget });
       } catch (error) {
-        if (activeGroupId.current === groupTarget) {
+        if (activeBotId.current === botTarget) {
           setSendError(error instanceof Error ? error.message : t`Failed to stop`);
         }
         return;
       }
-      // Stop has no terminal event; clear run UI before refresh races with in-flight gets.
-      if (activeGroupId.current === groupTarget) {
-        updateSnapshot((prev) =>
-          prev && prev.groupId === groupTarget ? clearActiveThreadRuns(prev) : prev,
-        );
-      }
-      await refreshGroupThreadRef.current(groupTarget).catch(() => undefined);
-      return;
-    }
-    if (!botTarget) return;
-    setSendError(null);
-    try {
-      await rpc.threads.stop({ botId: botTarget });
-    } catch (error) {
+      // Stop does not emit a terminal thread event. Clear local run/busy immediately so a
+      // superseded in-flight refresh (older cursor) cannot leave Stop enabled / Take control
+      // blocked while the API is already idle.
       if (activeBotId.current === botTarget) {
-        setSendError(error instanceof Error ? error.message : t`Failed to stop`);
+        updateSnapshot((prev) =>
+          !prev || (prev.botId !== botTarget && prev.botId) ? prev : clearActiveThreadRuns(prev),
+        );
+        const currentComputer = computerRef.current;
+        if (currentComputer?.busyBotName) {
+          commitComputer({ ...currentComputer, busyBotName: null });
+        }
       }
-      return;
+      await refreshThreadRef.current(botTarget).catch(() => undefined);
+    } finally {
+      setSending(false);
     }
-    // Stop does not emit a terminal thread event. Clear local run/busy immediately so a
-    // superseded in-flight refresh (older cursor) cannot leave Stop enabled / Take control
-    // blocked while the API is already idle.
-    if (activeBotId.current === botTarget) {
-      updateSnapshot((prev) => {
-        if (!prev || (prev.botId !== botTarget && prev.botId)) return prev;
-        return clearActiveThreadRuns(prev);
-      });
-      const currentComputer = computerRef.current;
-      if (currentComputer?.busyBotName) {
-        commitComputer({ ...currentComputer, busyBotName: null });
-      }
-    }
-    await refreshThreadRef.current(botTarget).catch(() => undefined);
-  }, [t]);
+  }, [sending, t]);
   const stopTeaching = useCallback(async () => {
     const id = activeBotId.current;
     if (!id || teachBusy) return;
@@ -4509,7 +4514,7 @@ const Composer = memo(function Composer({
           data-testid="composer-steering-status"
           aria-live="polite"
         >
-          Messages sent now guide the next turn.
+          {t`Messages sent now guide the next turn.`}
         </p>
       ) : null}
       <div
@@ -4654,13 +4659,17 @@ const Composer = memo(function Composer({
               showComposerPlaceholder
                 ? activeName
                   ? running
-                    ? `Steer ${activeName}`
+                    ? t`Steer ${activeName}`
                     : t`Message ${activeName}`
                   : t`Message…`
                 : undefined
             }
             aria-label={
-              activeName ? (running ? `Steer ${activeName}` : t`Message ${activeName}`) : t`Message`
+              activeName
+                ? running
+                  ? t`Steer ${activeName}`
+                  : t`Message ${activeName}`
+                : t`Message`
             }
             role="combobox"
             aria-autocomplete="list"
@@ -4679,7 +4688,7 @@ const Composer = memo(function Composer({
           <>
             <button
               type="button"
-              aria-label="Send steering message"
+              aria-label={t`Send steering message`}
               disabled={sending || !canSend || disabled}
               onClick={send}
               className="grid h-10 w-10 place-items-center rounded-full bg-[#F1F1EF] text-[#17171A] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A6A6AD] disabled:opacity-50"
@@ -4689,8 +4698,9 @@ const Composer = memo(function Composer({
             <button
               type="button"
               aria-label={t`Stop`}
+              disabled={sending}
               onClick={() => void onStop()}
-              className="grid h-10 w-10 place-items-center rounded-full border border-[#34343A] text-[#C9C9CE] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A6A6AD]"
+              className="grid h-10 w-10 place-items-center rounded-full border border-[#34343A] text-[#C9C9CE] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A6A6AD] disabled:opacity-50"
             >
               <Square size={12} strokeWidth={0} fill="currentColor" />
             </button>
@@ -6794,6 +6804,14 @@ function ArtifactImage({
       ) : null}
     </div>
   );
+}
+
+function newClientNonce(): string {
+  const webCrypto = globalThis.crypto;
+  if (webCrypto && typeof webCrypto.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+  return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function readFileAsBase64(file: File): Promise<string> {

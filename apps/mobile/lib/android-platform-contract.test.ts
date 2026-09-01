@@ -163,6 +163,7 @@ describe("Android mobile platform contract", () => {
     expect(thread).toContain('accessibilityLabel="Stop"');
     expect(thread).toContain("Messages sent now guide the next turn.");
     expect(thread).toContain("const clientNonce = newClientNonce()");
+    expect(thread).toContain("Work stopped, but the thread could not refresh");
   });
 
   it("shows agent notification silence in the menu, inbox avatar, and DM header only", () => {

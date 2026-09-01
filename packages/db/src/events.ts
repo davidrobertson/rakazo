@@ -85,6 +85,7 @@ export interface ClaimSteeringInput {
 
 export interface ClaimedSteeringMessage {
   id: string;
+  messageId: string;
   text: string;
   blocks: MessageBlock[];
 }
@@ -381,7 +382,7 @@ export async function sendUserMessage(
           botId: input.botId,
           status: { in: ["running", "queued", "leased", "waiting_input", "waiting_takeover"] },
         },
-        select: { id: true },
+        select: { id: true, taskId: true },
       });
       let task = null;
       let run = null;
@@ -431,7 +432,7 @@ export async function sendUserMessage(
         runId: run?.id ?? busy?.id,
         payload: { messageId: message.id, role: "user", blocks: input.blocks },
       });
-      return { message, task, run, event };
+      return { message, task, run, busy, event };
     });
   const committed = await commit().catch(async (error) => {
     const winner = await replay();
@@ -446,8 +447,8 @@ export async function sendUserMessage(
   return {
     messageId: committed.message.id,
     seq: committed.message.seq,
-    taskId: committed.task?.id ?? null,
-    runId: committed.run?.id ?? null,
+    taskId: committed.task?.id ?? committed.busy?.taskId ?? null,
+    runId: committed.run?.id ?? committed.busy?.id ?? null,
   };
 }
 
@@ -486,6 +487,7 @@ export async function claimSteering(
     });
     return steering.map((item) => ({
       id: item.id,
+      messageId: item.messageId,
       text: blocksToAgentHistoryText(item.message.blocks as MessageBlock[]),
       blocks: item.message.blocks as MessageBlock[],
     }));

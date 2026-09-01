@@ -200,8 +200,8 @@ describe("Pi connector tool dispatch", () => {
       return claimCount === 1
         ? []
         : [
-            { id: "steering-1", text: "Use the newer customer totals." },
-            { id: "steering-2", text: "Keep the original date range." },
+            { id: "steering-1", messageId: "message-1", text: "Use the newer customer totals." },
+            { id: "steering-2", messageId: "message-2", text: "Keep the original date range." },
           ];
     });
     const runtime = new PiAgentRuntime();
@@ -238,8 +238,8 @@ describe("Pi connector tool dispatch", () => {
       claimCount += 1;
       if (claimCount === 1) return [];
       return claimCount === 2
-        ? [{ id: "steering-1", text: "First boundary context." }]
-        : [{ id: "steering-2", text: "Next boundary context." }];
+        ? [{ id: "steering-1", messageId: "message-1", text: "First boundary context." }]
+        : [{ id: "steering-2", messageId: "message-2", text: "Next boundary context." }];
     });
     const runtime = new PiAgentRuntime();
 
@@ -272,8 +272,8 @@ describe("Pi connector tool dispatch", () => {
   it("consumes pending continuation steering once in the first prompt", async () => {
     fakeAgentState.mode = "empty";
     const steering = [
-      { id: "steering-1", text: "Use the newer customer totals." },
-      { id: "steering-2", text: "Keep the original date range." },
+      { id: "steering-1", messageId: "message-1", text: "Use the newer customer totals." },
+      { id: "steering-2", messageId: "message-2", text: "Keep the original date range." },
     ];
     const claimSteering = vi.fn(async (seenIds: string[]) => (seenIds.length ? [] : steering));
     const runtime = new PiAgentRuntime();
@@ -286,8 +286,8 @@ describe("Pi connector tool dispatch", () => {
         prompt: "Respond to the user's steering context.",
         instructions: "Follow the user's instructions.",
         history: [
-          { role: "user", content: steering[0]!.text },
-          { role: "user", content: steering[1]!.text },
+          { id: steering[0]!.messageId, role: "user", content: steering[0]!.text },
+          { id: steering[1]!.messageId, role: "user", content: steering[1]!.text },
           { role: "assistant", content: "Here is the first result." },
         ],
         tools: [],
@@ -316,6 +316,7 @@ describe("Pi connector tool dispatch", () => {
         return [
           {
             id: "initial-image",
+            messageId: "initial-image-message",
             text: "Inspect the first image.",
             images: [
               {
@@ -330,6 +331,7 @@ describe("Pi connector tool dispatch", () => {
       return [
         {
           id: "boundary-image",
+          messageId: "boundary-image-message",
           text: "Compare the second image.",
           images: [
             { name: "second.png", mimeType: "image/png" as const, data: new Uint8Array([4, 5, 6]) },

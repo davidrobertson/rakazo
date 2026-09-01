@@ -14,6 +14,7 @@ import type {
   AgentRunRequest,
   AgentRuntime,
   AgentRuntimeEvent,
+  AgentSteeringMessage,
   AgentToolExecutionResult,
   ConnectorTool,
 } from "@rakazo/adapter-kit";
@@ -148,11 +149,9 @@ export class PiAgentRuntime implements AgentRuntime {
         const initialSteering = request.claimSteering ? await request.claimSteering([]) : [];
         seenSteeringIds.push(...initialSteering.map((item) => item.id));
         const history = toHistory(
-          withoutSteeringMessages(
-            request.history,
-            initialSteering.map((item) => item.historyText ?? item.text),
-          ),
+          withoutSteeringMessages(request.history, initialSteering),
           request.prompt,
+          request.sourceMessageId,
         );
         const initialPrompt = initialSteering.length
           ? `${request.prompt}\n\nAdditional user context:\n${initialSteering
@@ -481,11 +480,18 @@ function stableToolNameHash(name: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function toHistory(history: AgentRunRequest["history"], prompt: string) {
+function toHistory(
+  history: AgentRunRequest["history"],
+  prompt: string,
+  sourceMessageId?: string | null,
+) {
   let duplicatePromptIndex = -1;
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const message = history[index];
-    if (message?.role === "user" && message.content === prompt) {
+    if (
+      message?.role === "user" &&
+      (sourceMessageId ? message.id === sourceMessageId : message.content === prompt)
+    ) {
       duplicatePromptIndex = index;
       break;
     }
@@ -505,15 +511,23 @@ function toHistory(history: AgentRunRequest["history"], prompt: string) {
 
 function withoutSteeringMessages(
   history: AgentRunRequest["history"],
-  steering: string[],
+  steering: AgentSteeringMessage[],
 ): AgentRunRequest["history"] {
   if (steering.length === 0) return history;
   const result = [...history];
   let beforeIndex = result.length - 1;
   for (let steeringIndex = steering.length - 1; steeringIndex >= 0; steeringIndex -= 1) {
+    const steeringMessage = steering[steeringIndex];
     for (let index = beforeIndex; index >= 0; index -= 1) {
       const message = result[index];
-      if (message?.role !== "user" || message.content !== steering[steeringIndex]) continue;
+      if (
+        message?.role !== "user" ||
+        (message.id
+          ? message.id !== steeringMessage?.messageId
+          : message.content !== (steeringMessage?.historyText ?? steeringMessage?.text))
+      ) {
+        continue;
+      }
       result.splice(index, 1);
       beforeIndex = index - 1;
       break;
