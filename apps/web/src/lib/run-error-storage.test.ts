@@ -1,5 +1,5 @@
 import type { ThreadSnapshot } from "@rakazo/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   readSeenRunErrorIds,
   rememberSeenRunErrorId,
@@ -7,10 +7,14 @@ import {
 } from "./run-error-storage";
 import { threadRunError } from "./thread-events";
 
-function storage() {
-  const values = new Map<string, string>();
+function storage(values = new Map<string, string>()) {
   return {
+    get length() {
+      return values.size;
+    },
     getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => [...values.keys()][index] ?? null,
+    removeItem: (key: string) => values.delete(key),
     setItem: (key: string, value: string) => values.set(key, value),
   };
 }
@@ -84,5 +88,41 @@ describe("seen run error storage", () => {
     expect(reloaded).toHaveLength(SEEN_RUN_ERROR_LIMIT);
     expect(reloaded.has("run-0")).toBe(false);
     expect(reloaded.has(`run-${SEEN_RUN_ERROR_LIMIT}`)).toBe(true);
+  });
+
+  it("does not lose an ID when another tab writes from a stale read", () => {
+    const values = new Map<string, string>();
+    const currentTab = storage(values);
+    const staleTab = {
+      get length() {
+        return currentTab.length;
+      },
+      getItem: () => null,
+      key: currentTab.key,
+      removeItem: currentTab.removeItem,
+      setItem: currentTab.setItem,
+    };
+
+    rememberSeenRunErrorId("run-current", currentTab);
+    rememberSeenRunErrorId("run-stale", staleTab);
+
+    expect(readSeenRunErrorIds(currentTab)).toEqual(new Set(["run-current", "run-stale"]));
+  });
+
+  it("retains the ID just seen when stored timestamps tie", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1);
+    const localStorage = storage();
+    try {
+      for (let index = 0; index < SEEN_RUN_ERROR_LIMIT; index += 1) {
+        rememberSeenRunErrorId(`z-run-${index}`, localStorage);
+      }
+      rememberSeenRunErrorId("a-new-run", localStorage);
+
+      const reloaded = readSeenRunErrorIds(localStorage);
+      expect(reloaded).toHaveLength(SEEN_RUN_ERROR_LIMIT);
+      expect(reloaded.has("a-new-run")).toBe(true);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

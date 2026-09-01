@@ -1614,10 +1614,6 @@ export function ShellPage() {
   const composerRunning = currentRuns.some((run) => isActive(run.status));
   const runError = threadRunError(activeSnapshot, dismissedRunErrorIds);
   const displayedRunError = !sendError && !dictationError ? runError : null;
-  useEffect(() => {
-    const failedRunId = displayedRunError ? activeSnapshot?.run?.id : null;
-    if (failedRunId) rememberSeenRunErrorId(failedRunId);
-  }, [activeSnapshot?.run?.id, displayedRunError]);
   const transcriptMessages = useMemo(
     () => userVisibleMessages(activeSnapshot?.messages ?? [], { includePeerReceipts: true }),
     [activeSnapshot?.messages],
@@ -2826,7 +2822,11 @@ export function ShellPage() {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-[#0D0D0E]">
+      <main
+        aria-hidden={mobileSidebarOpen || undefined}
+        inert={mobileSidebarOpen}
+        className="flex min-w-0 flex-1 flex-col bg-[#0D0D0E]"
+      >
         <div className="app-drag flex items-center justify-between border-b border-[#141416] px-3 py-[17px] md:px-[22px]">
           <div className="flex min-w-0 items-center gap-2">
             <button
@@ -2947,6 +2947,10 @@ export function ShellPage() {
           sendError={sendError}
           dictationError={dictationError}
           runError={displayedRunError}
+          onRunErrorPresented={() => {
+            const failedRunId = displayedRunError ? activeSnapshot?.run?.id : null;
+            if (failedRunId) rememberSeenRunErrorId(failedRunId);
+          }}
           onDismissError={dismissComposerError}
           sending={sending}
           fileInputRef={fileInputRef}
@@ -4098,6 +4102,7 @@ const Composer = memo(function Composer({
   sendError,
   dictationError,
   runError,
+  onRunErrorPresented,
   onDismissError,
   sending,
   fileInputRef,
@@ -4125,6 +4130,7 @@ const Composer = memo(function Composer({
   sendError: string | null;
   dictationError: string | null;
   runError: string | null;
+  onRunErrorPresented: () => void;
   onDismissError: () => void;
   sending: boolean;
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -4152,6 +4158,7 @@ const Composer = memo(function Composer({
   const [selectedSkill, setSelectedSkill] = useState<AgentSkillCatalogEntry | null>(null);
   const [selectedMentions, setSelectedMentions] = useState<ComposerMention[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const runErrorRef = useRef<HTMLDivElement>(null);
   const mentionListboxId = useId();
   const dragDepth = useRef(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
@@ -4160,6 +4167,32 @@ const Composer = memo(function Composer({
     selectedSkill !== null ||
     selectedMentions.length > 0 ||
     pendingAttachments.length > 0;
+
+  useEffect(() => {
+    if (!runError) return;
+    let frame = 0;
+    function recordIfPresented() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const element = runErrorRef.current;
+        if (!element || document.visibilityState !== "visible") return;
+        const rect = element.getBoundingClientRect();
+        const topElement = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+        if (topElement && (topElement === element || element.contains(topElement))) {
+          onRunErrorPresented();
+        }
+      });
+    }
+    recordIfPresented();
+    document.addEventListener("visibilitychange", recordIfPresented);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("visibilitychange", recordIfPresented);
+    };
+  }, [onRunErrorPresented, runError]);
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -4357,6 +4390,7 @@ const Composer = memo(function Composer({
     >
       {sendError || dictationError || runError ? (
         <div
+          ref={runErrorRef}
           role="alert"
           data-testid="composer-error"
           className="mb-3 flex items-center gap-2 rounded-[14px] border border-[#5A2A2A] bg-[#2A1717] px-4 py-2 text-[13px] text-[#F1A8A8]"

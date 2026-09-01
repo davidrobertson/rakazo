@@ -1,7 +1,7 @@
 export const SEEN_RUN_ERROR_LIMIT = 100;
-const SEEN_RUN_ERROR_STORAGE_KEY = "rakazo:seen-run-error-ids";
+const SEEN_RUN_ERROR_STORAGE_KEY_PREFIX = "rakazo:seen-run-error:";
 
-type RunErrorStorage = Pick<Storage, "getItem" | "setItem">;
+type RunErrorStorage = Pick<Storage, "getItem" | "key" | "length" | "removeItem" | "setItem">;
 
 function browserStorage(): RunErrorStorage | null {
   try {
@@ -12,16 +12,18 @@ function browserStorage(): RunErrorStorage | null {
 }
 
 export function readSeenRunErrorIds(
-  storage: Pick<RunErrorStorage, "getItem"> | null = browserStorage(),
+  storage: RunErrorStorage | null = browserStorage(),
 ): Set<string> {
   if (!storage) return new Set();
   try {
-    const value: unknown = JSON.parse(storage.getItem(SEEN_RUN_ERROR_STORAGE_KEY) ?? "[]");
-    return new Set(
-      (Array.isArray(value) ? value : [])
-        .filter((id): id is string => typeof id === "string")
-        .slice(-SEEN_RUN_ERROR_LIMIT),
-    );
+    const ids = new Set<string>();
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(SEEN_RUN_ERROR_STORAGE_KEY_PREFIX)) {
+        ids.add(key.slice(SEEN_RUN_ERROR_STORAGE_KEY_PREFIX.length));
+      }
+    }
+    return ids;
   } catch {
     return new Set();
   }
@@ -33,11 +35,25 @@ export function rememberSeenRunErrorId(
 ): void {
   if (!storage) return;
   try {
-    const ids = [...readSeenRunErrorIds(storage)].filter((candidate) => candidate !== id);
-    storage.setItem(
-      SEEN_RUN_ERROR_STORAGE_KEY,
-      JSON.stringify([...ids, id].slice(-SEEN_RUN_ERROR_LIMIT)),
-    );
+    const currentKey = `${SEEN_RUN_ERROR_STORAGE_KEY_PREFIX}${id}`;
+    const entries: Array<{ key: string; seenAt: number }> = [];
+    let newestSeenAt = 0;
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(SEEN_RUN_ERROR_STORAGE_KEY_PREFIX)) {
+        const storedSeenAt = Number(storage.getItem(key));
+        const seenAt = Number.isFinite(storedSeenAt) ? storedSeenAt : 0;
+        entries.push({ key, seenAt });
+        newestSeenAt = Math.max(newestSeenAt, seenAt);
+      }
+    }
+    const seenAt = Math.max(Date.now(), newestSeenAt + 1);
+    storage.setItem(currentKey, String(seenAt));
+    const currentEntry = entries.find((entry) => entry.key === currentKey);
+    if (currentEntry) currentEntry.seenAt = seenAt;
+    else entries.push({ key: currentKey, seenAt });
+    entries.sort((left, right) => right.seenAt - left.seenAt || right.key.localeCompare(left.key));
+    for (const { key } of entries.slice(SEEN_RUN_ERROR_LIMIT)) storage.removeItem(key);
   } catch {
     // Keep the current-session error behavior when storage is unavailable.
   }

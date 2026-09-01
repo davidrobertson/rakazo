@@ -31,3 +31,31 @@ test("a failed run is visible once without returning after reload", async ({ pag
   await page.getByTestId("composer-error-dismiss").click();
   await expect(error).toBeHidden();
 });
+
+test("a covered run error is not remembered until it is presented", async ({ page }, testInfo) => {
+  const stamp = Date.now();
+  await signup(page, `covered-run-failure-${stamp}@rakazo.test`, "password12", "Covered Failure");
+  await completeOnboarding(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await page.getByPlaceholder(/^Message /).fill("fail this run");
+  const sendButton = await page.getByRole("button", { name: "Send" }).elementHandle();
+  if (!sendButton) throw new Error("Send button not found");
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await expect(page.getByRole("button", { name: "Close navigation" })).toBeVisible();
+  await expect(page.locator("main")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("main")).toHaveJSProperty("inert", true);
+  await sendButton.evaluate((button) => (button as HTMLButtonElement).click());
+
+  const error = page.getByTestId("composer-error");
+  await expect(error).not.toBeEmpty({ timeout: 30_000 });
+  await captureScreenshot(page, testInfo, "run-error-covered-by-mobile-navigation");
+  await page.reload();
+  await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
+  await expect(error).toBeVisible();
+  await captureScreenshot(page, testInfo, "covered-run-error-presented-after-reload");
+
+  await page.reload();
+  await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
+  await expect(error).toBeHidden();
+});
