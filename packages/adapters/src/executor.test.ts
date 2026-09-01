@@ -590,6 +590,50 @@ description: Prepare standup notes
     expect(enqueue).toHaveBeenCalledOnce();
   });
 
+  it("requeues the run when attempt initialization fails", async () => {
+    const clockError = new Error("database clock unavailable");
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([{ now: new Date("2026-09-01T12:00:00.000Z") }])
+      .mockRejectedValueOnce(clockError);
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const enqueue = vi.fn(async () => undefined);
+    const prisma = {
+      $queryRaw: queryRaw,
+      run: {
+        findUnique: vi.fn(async () => ({
+          id: "run-1",
+          botId: "bot-1",
+          status: "queued",
+          checkpoint: null,
+          leaseFence: 0,
+        })),
+        findUniqueOrThrow: vi.fn(async () => ({ status: "leased", startedAt: null })),
+        updateMany,
+      },
+      bot: {
+        findUniqueOrThrow: vi.fn(async () => ({
+          computerId: "computer-1",
+          computerSwitching: false,
+        })),
+      },
+      computer: {
+        findUniqueOrThrow: vi.fn(async () => ({ scope: "personal", state: "running" })),
+      },
+      attempt: { create: vi.fn() },
+    } as unknown as PrismaClient;
+    const executor = createRunExecutor({ prisma, jobs: { enqueue } } as unknown as Parameters<
+      typeof createRunExecutor
+    >[0]);
+
+    await expect(executor.continueRun("run-1", "worker-1")).rejects.toBe(clockError);
+
+    expect(updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "queued" }) }),
+    );
+    expect(enqueue).toHaveBeenCalledOnce();
+  });
+
   it("resolves a per-bot model override with that provider’s credential", async () => {
     const findFirst = vi.fn(
       async (args: { where: { credential?: { provider?: string }; isDefault?: boolean } }) => {

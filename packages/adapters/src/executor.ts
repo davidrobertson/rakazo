@@ -798,7 +798,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
       }
       const attempt = await createRunAttempt(deps.prisma, runId, fence, () =>
         releaseComputerExecutionLease(deps.prisma, computerLease),
-      );
+      ).catch(async (error) => {
+        await requeueComputerRun(deps, runId, workerId, fence, resumeCheckpoint);
+        throw error;
+      });
 
       let leaseValid = true;
       let lastLeaseCheckAt = 0;
