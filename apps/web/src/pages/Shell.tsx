@@ -5052,7 +5052,7 @@ const MessageView = memo(function MessageView({
                   <ToolActivityDisclosure
                     key={i}
                     live={isLive}
-                    label={toolActivityLabel(block.durationMs, isLive)}
+                    label={isLive ? t`Working…` : toolActivityLabel(block.durationMs, false)}
                   >
                     <ToolSteps
                       steps={block.steps}
@@ -5164,7 +5164,7 @@ const MessageView = memo(function MessageView({
               >
                 <ToolActivityDisclosure
                   live={isLive}
-                  label={toolActivityLabel(block.durationMs, isLive)}
+                  label={isLive ? t`Working…` : toolActivityLabel(block.durationMs, false)}
                 >
                   <ToolSteps
                     steps={block.steps}
