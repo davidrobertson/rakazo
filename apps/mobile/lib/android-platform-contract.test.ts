@@ -159,12 +159,25 @@ describe("Android mobile platform contract", () => {
 
   it("keeps send and stop separate while steering active work", () => {
     const thread = readFileSync(resolve(mobileRoot, "app/thread.tsx"), "utf8");
+    const stopStart = thread.indexOf("async function stop()");
+    const stopSource = thread.slice(stopStart, thread.indexOf("const answerMessage", stopStart));
+    expect(stopStart).toBeGreaterThan(-1);
     expect(thread).toContain('accessibilityLabel={working ? "Send steering message" : "Send"}');
     expect(thread).toContain('accessibilityLabel="Stop"');
     expect(thread).toContain("Messages sent now guide the next turn.");
     expect(thread).toContain("const clientNonce = newClientNonce()");
     expect(thread).toContain("Work stopped, but the thread could not refresh");
-    expect(thread).toContain("isCurrentTarget(targetBotId, targetGroupId)");
+    expect(stopSource).toContain("const targetBotId = botId;");
+    expect(stopSource).toContain("const targetGroupId = groupId;");
+    expect(stopSource).toContain(
+      "targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! },",
+    );
+    expect(stopSource).toMatch(
+      /if \(isCurrentTarget\(targetBotId, targetGroupId\)\) \{\s*setError\(err instanceof Error \? err\.message : "Failed to stop work"\);/,
+    );
+    expect(stopSource).toMatch(
+      /if \(isCurrentTarget\(targetBotId, targetGroupId\)\) \{\s*(?:const detail = [^\n]+;\s*)?setError\(`Work stopped, but the thread could not refresh: \$\{detail\}`\);/,
+    );
   });
 
   it("shows agent notification silence in the menu, inbox avatar, and DM header only", () => {

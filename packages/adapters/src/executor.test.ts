@@ -1,9 +1,9 @@
+import type { MessageBlock } from "@rakazo/contracts";
 import { ONCE_ROUTINE_CRON } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import {
   createRunExecutor,
-  type ExecutorDeps,
   loadCurrentTurnImages,
   runNotificationsEnabled,
   selectBuiltinToolsForRun,
@@ -41,6 +41,10 @@ describe("run tool selection", () => {
 
 describe("steering attachment hydration", () => {
   it("keeps successful attachment parts when another part is unavailable", async () => {
+    const imageBlocks: MessageBlock[] = [
+      { kind: "image", artifactId: "image-1", name: "one.png", mimeType: "image/png" },
+      { kind: "image", artifactId: "image-2", name: "two.png", mimeType: "image/png" },
+    ];
     const withoutImage = await settleSteeringAttachmentLoads(
       Promise.reject(new Error("image missing")),
       Promise.resolve(["attachment.pdf"]),
@@ -54,43 +58,60 @@ describe("steering attachment hydration", () => {
     );
     expect(withoutFile).toMatchObject({ images: ["image.png"], files: [] });
     expect(withoutFile.unavailableInstruction).toContain("do not guess its contents");
-  });
 
-  it("treats a missing steering image artifact row as unavailable, not an empty success", async () => {
-    const findMany = vi.fn(async () => []);
-    const get = vi.fn();
-    const deps = {
-      prisma: { artifact: { findMany } },
-      artifacts: { get },
-    } as unknown as ExecutorDeps;
-    const context = {
-      operationId: "op-1",
-      traceId: "trace-1",
-      spaceId: "space-1",
-      userId: "user-1",
-      botId: "bot-1",
-      runId: "run-1",
-      signal: new AbortController().signal,
-    };
-    const missingImage = {
-      kind: "image" as const,
-      artifactId: "missing-artifact",
-      name: "steer.png",
-      mimeType: "image/png",
-    };
-
-    await expect(loadCurrentTurnImages(deps, [missingImage], context)).rejects.toThrow(
-      "Attached image is unavailable: steer.png",
+    const partiallyHydratedImages = await loadCurrentTurnImages(
+      {
+        artifacts: { get: vi.fn(async () => new Uint8Array([1])) },
+        prisma: {
+          artifact: {
+            findMany: vi.fn(async () => [{ id: "image-1", storageKey: "one.png" }]),
+          },
+        },
+      } as never,
+      imageBlocks,
+      {
+        operationId: "run-1",
+        traceId: "run-1",
+        spaceId: "space-1",
+        userId: "user-1",
+        botId: "bot-1",
+        runId: "run-1",
+        signal: new AbortController().signal,
+      },
+    );
+    expect(partiallyHydratedImages).toHaveLength(1);
+    const withPartiallyMissingImages = await settleSteeringAttachmentLoads(
+      Promise.resolve(partiallyHydratedImages),
+      Promise.resolve([]),
+      imageBlocks,
+    );
+    expect(withPartiallyMissingImages).toMatchObject({
+      images: partiallyHydratedImages,
+      files: [],
+    });
+    expect(withPartiallyMissingImages.unavailableInstruction).toContain(
+      "do not guess its contents",
     );
 
-    const settled = await settleSteeringAttachmentLoads(
-      loadCurrentTurnImages(deps, [missingImage], context),
-      Promise.resolve(["ok.pdf"]),
+    const withAllImagesMissing = await settleSteeringAttachmentLoads(
+      Promise.resolve(undefined),
+      Promise.resolve([]),
+      imageBlocks.slice(0, 1),
     );
-    expect(get).not.toHaveBeenCalled();
-    expect(findMany).toHaveBeenCalled();
-    expect(settled).toMatchObject({ images: undefined, files: ["ok.pdf"] });
-    expect(settled.unavailableInstruction).toContain("do not guess its contents");
+    expect(withAllImagesMissing.unavailableInstruction).toContain("do not guess its contents");
+
+    const withoutMissingImages = await settleSteeringAttachmentLoads(
+      Promise.resolve(["image.png"]),
+      Promise.resolve([]),
+      imageBlocks.slice(0, 1),
+    );
+    expect(withoutMissingImages.unavailableInstruction).toBe("");
+
+    const withoutExpectedImages = await settleSteeringAttachmentLoads(
+      Promise.resolve(undefined),
+      Promise.resolve([]),
+    );
+    expect(withoutExpectedImages.unavailableInstruction).toBe("");
   });
 });
 

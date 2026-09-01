@@ -2837,6 +2837,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                                   { context, computer, computerMode },
                                 )
                               : Promise.resolve([]),
+                            item.blocks,
                           );
                         const filesInstruction = currentTurnFilesInstruction(files);
                         return {
@@ -3495,13 +3496,20 @@ export function completionMarksUnread(trigger: string, text: string): boolean {
 export async function settleSteeringAttachmentLoads<TImage, TFile>(
   images: Promise<TImage[] | undefined>,
   files: Promise<TFile[]>,
+  blocks?: MessageBlock[],
 ): Promise<{
   images: TImage[] | undefined;
   files: TFile[];
   unavailableInstruction: string;
 }> {
   const [loadedImages, loadedFiles] = await Promise.allSettled([images, files]);
-  const unavailable = loadedImages.status === "rejected" || loadedFiles.status === "rejected";
+  const expectedImageCount = blocks?.filter((block) => block.kind === "image").length ?? 0;
+  const loadedImageCount =
+    loadedImages.status === "fulfilled" ? (loadedImages.value?.length ?? 0) : 0;
+  const unavailable =
+    loadedImages.status === "rejected" ||
+    loadedFiles.status === "rejected" ||
+    loadedImageCount < expectedImageCount;
   return {
     images: loadedImages.status === "fulfilled" ? loadedImages.value : undefined,
     files: loadedFiles.status === "fulfilled" ? loadedFiles.value : [],
@@ -3829,9 +3837,8 @@ export async function loadCurrentTurnImages(
     [];
 
   for (const block of imageBlocks) {
-    if (!isAttachmentImageMimeType(block.mimeType)) continue;
     const row = byId.get(block.artifactId);
-    if (!row) throw new Error(`Attached image is unavailable: ${block.name}`);
+    if (!row || !isAttachmentImageMimeType(block.mimeType)) continue;
     const bytes = await deps.artifacts.get(row.storageKey, context);
     images.push({
       name: block.name,
