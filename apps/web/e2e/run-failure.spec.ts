@@ -1,4 +1,4 @@
-import { expect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { captureScreenshot, completeOnboarding, signup } from "./helpers";
 
 function isPresented(error: Locator) {
@@ -9,6 +9,16 @@ function isPresented(error: Locator) {
       rect.top + rect.height / 2,
     );
     return topElement === element || (topElement !== null && element.contains(topElement));
+  });
+}
+
+function seenRunErrorCount(page: Page) {
+  return page.evaluate(() => {
+    let count = 0;
+    for (let index = 0; index < localStorage.length; index += 1) {
+      if (localStorage.key(index)?.startsWith("rakazo:seen-run-error:")) count += 1;
+    }
+    return count;
   });
 }
 
@@ -72,6 +82,7 @@ test("a covered run error is not remembered until it is presented", async ({ pag
   await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
   await expect(error).toBeHidden();
 
+  const recordedErrorCount = await seenRunErrorCount(page);
   await page.getByPlaceholder(/^Message /).fill("fail this run");
   const nextSendButton = await page.getByRole("button", { name: "Send" }).elementHandle();
   if (!nextSendButton) throw new Error("Send button not found");
@@ -79,18 +90,9 @@ test("a covered run error is not remembered until it is presented", async ({ pag
   await nextSendButton.evaluate((button) => (button as HTMLButtonElement).click());
   await expect(error).not.toBeEmpty({ timeout: 30_000 });
 
-  const drawerClosed = page
-    .locator("aside")
-    .first()
-    .evaluate(
-      (drawer) =>
-        new Promise<void>((resolve) => {
-          drawer.addEventListener("transitionend", () => resolve(), { once: true });
-        }),
-    );
   await page.getByRole("button", { name: "Close navigation" }).click();
-  await drawerClosed;
-  expect(await isPresented(error)).toBe(true);
+  await expect.poll(() => isPresented(error)).toBe(true);
+  await expect.poll(() => seenRunErrorCount(page)).toBe(recordedErrorCount + 1);
   await captureScreenshot(page, testInfo, "covered-run-error-presented-after-drawer-close");
 
   await page.reload();
