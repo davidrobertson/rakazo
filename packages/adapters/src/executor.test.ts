@@ -115,6 +115,21 @@ describe("steering attachment hydration", () => {
     expect(withoutExpectedImages.unavailableInstruction).toBe("");
   });
 
+  it("propagates cancellation while steering attachments settle", async () => {
+    const controller = new AbortController();
+    const cancellation = new Error("cancelled");
+    controller.abort();
+
+    await expect(
+      settleSteeringAttachmentLoads(
+        Promise.reject(cancellation),
+        Promise.resolve([]),
+        undefined,
+        controller.signal,
+      ),
+    ).rejects.toBe(cancellation);
+  });
+
   it("treats unreadable image bytes as missing instead of failing hydration", async () => {
     const blocks: MessageBlock[] = [
       { kind: "image", artifactId: "image-1", name: "one.png", mimeType: "image/png" },
