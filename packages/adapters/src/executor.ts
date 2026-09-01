@@ -2953,7 +2953,24 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 flushPendingTools();
                 if (!(await renewRunLease(deps, runId, workerId, fence))) return;
                 if (messageSegments.length > 0) {
-                  await publishMessage(deps, run, "bot", redactBlocks(messageSegments, runSecrets));
+                  await publishMessage(
+                    deps,
+                    run,
+                    "bot",
+                    redactBlocks(
+                      await completedActivityBlocksForAttempts(
+                        messageSegments,
+                        attempt.id,
+                        Date.now(),
+                        () =>
+                          deps.prisma.attempt.findMany({
+                            where: { runId },
+                            select: { id: true, startedAt: true, finishedAt: true },
+                          }),
+                      ),
+                      runSecrets,
+                    ),
+                  );
                 }
                 await checkpointAndRecordComputerWorkspace(deps, storedComputer, computer, context);
                 terminalCheckpointComplete = true;
@@ -3099,21 +3116,21 @@ export function createRunExecutor(deps: ExecutorDeps) {
               skipEmptyFallback: publishedTerminalSubagent,
             });
           }
-          const completedAtMs = Date.now();
-          const durationMs =
-            !handedOff && messageSegments.some((block) => block.kind === "steps")
-              ? workedDurationMs(
-                  await deps.prisma.attempt.findMany({
-                    where: { runId },
-                    select: { id: true, startedAt: true, finishedAt: true },
-                  }),
-                  attempt.id,
-                  completedAtMs,
-                )
-              : 0;
           const blocks = handedOff
             ? []
-            : redactBlocks(completedActivityBlocks(messageSegments, durationMs), runSecrets);
+            : redactBlocks(
+                await completedActivityBlocksForAttempts(
+                  messageSegments,
+                  attempt.id,
+                  Date.now(),
+                  () =>
+                    deps.prisma.attempt.findMany({
+                      where: { runId },
+                      select: { id: true, startedAt: true, finishedAt: true },
+                    }),
+                ),
+                runSecrets,
+              );
           const text = handedOff
             ? ""
             : redactSecrets(completionNotificationBody(assembled, blocks), runSecrets);
@@ -3426,6 +3443,19 @@ export function completedActivityBlocks(
     blockIndex === index && block.kind === "steps"
       ? { ...block, durationMs: safeDurationMs }
       : block,
+  );
+}
+
+export async function completedActivityBlocksForAttempts(
+  blocks: MessageBlock[],
+  currentAttemptId: string,
+  completedAtMs: number,
+  loadAttempts: () => Promise<Array<{ id: string; startedAt: Date; finishedAt: Date | null }>>,
+): Promise<MessageBlock[]> {
+  if (!blocks.some((block) => block.kind === "steps")) return blocks;
+  return completedActivityBlocks(
+    blocks,
+    workedDurationMs(await loadAttempts(), currentAttemptId, completedAtMs),
   );
 }
 

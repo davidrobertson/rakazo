@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   completedActivityBlocks,
+  completedActivityBlocksForAttempts,
   completionMarksUnread,
   completionMessageSegments,
   completionNotificationBody,
@@ -34,6 +35,24 @@ describe("completedActivityBlocks", () => {
     ).toEqual([{ kind: "steps", steps: [{ label: "Shell", count: 1 }], durationMs: 0 }]);
     expect(completedActivityBlocks([{ kind: "text", text: "Done." }], 1_000)).toEqual([
       { kind: "text", text: "Done." },
+    ]);
+  });
+});
+
+describe("completedActivityBlocksForAttempts", () => {
+  it("stamps early-completion activity from persisted active attempts", async () => {
+    await expect(
+      completedActivityBlocksForAttempts(
+        [{ kind: "steps", steps: [{ label: "Shell", count: 6 }] }],
+        "current",
+        105_000,
+        async () => [
+          { id: "first", startedAt: new Date(1_000), finishedAt: new Date(11_000) },
+          { id: "current", startedAt: new Date(100_000), finishedAt: null },
+        ],
+      ),
+    ).resolves.toEqual([
+      { kind: "steps", steps: [{ label: "Shell", count: 6 }], durationMs: 15_000 },
     ]);
   });
 });
