@@ -1004,21 +1004,30 @@ function Thread() {
   }
 
   async function stop() {
-    if ((!botId && !groupId) || sending) return;
+    const targetBotId = botId;
+    const targetGroupId = groupId;
+    if ((!targetBotId && !targetGroupId) || sending) return;
     setSending(true);
     setError(null);
     try {
-      await rpc("threads/stop", groupId ? { groupId } : { botId: botId! });
+      await rpc(
+        "threads/stop",
+        targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! },
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to stop work");
+      if (isCurrentTarget(targetBotId, targetGroupId)) {
+        setError(err instanceof Error ? err.message : "Failed to stop work");
+      }
       setSending(false);
       return;
     }
     try {
       await refresh();
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Failed to refresh";
-      setError(`Work stopped, but the thread could not refresh: ${detail}`);
+      if (isCurrentTarget(targetBotId, targetGroupId)) {
+        const detail = err instanceof Error ? err.message : "Failed to refresh";
+        setError(`Work stopped, but the thread could not refresh: ${detail}`);
+      }
     } finally {
       setSending(false);
     }

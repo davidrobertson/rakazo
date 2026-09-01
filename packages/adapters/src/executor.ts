@@ -3798,7 +3798,7 @@ async function withModelCredentialLock<T>(key: string, fn: () => Promise<T>): Pr
   }
 }
 
-async function loadCurrentTurnImages(
+export async function loadCurrentTurnImages(
   deps: ExecutorDeps,
   blocks: MessageBlock[] | undefined,
   context: {
@@ -3829,8 +3829,9 @@ async function loadCurrentTurnImages(
     [];
 
   for (const block of imageBlocks) {
+    if (!isAttachmentImageMimeType(block.mimeType)) continue;
     const row = byId.get(block.artifactId);
-    if (!row || !isAttachmentImageMimeType(block.mimeType)) continue;
+    if (!row) throw new Error(`Attached image is unavailable: ${block.name}`);
     const bytes = await deps.artifacts.get(row.storageKey, context);
     images.push({
       name: block.name,
