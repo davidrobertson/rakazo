@@ -4195,10 +4195,13 @@ const Composer = memo(function Composer({
       });
     }
     recordIfPresented();
+    const observer = new MutationObserver(recordIfPresented);
+    observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("transitionend", recordIfPresented);
     document.addEventListener("visibilitychange", recordIfPresented);
     return () => {
       cancelAnimationFrame(frame);
+      observer.disconnect();
       document.removeEventListener("transitionend", recordIfPresented);
       document.removeEventListener("visibilitychange", recordIfPresented);
     };

@@ -99,4 +99,25 @@ test("a covered run error is not remembered until it is presented", async ({ pag
   await page.reload();
   await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
   await expect(error).toBeHidden();
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByPlaceholder(/^Message /).fill("fail this run");
+  const modalSendButton = await page.getByRole("button", { name: "Send" }).elementHandle();
+  if (!modalSendButton) throw new Error("Send button not found");
+  await page.getByTitle("Create").click();
+  await page.getByRole("button", { name: "New space" }).click();
+  const newSpaceDialog = page.getByRole("dialog", { name: "New space" });
+  await expect(newSpaceDialog).toBeVisible();
+  await modalSendButton.evaluate((button) => (button as HTMLButtonElement).click());
+  await expect(error).toContainText("Scripted run failure", { timeout: 30_000 });
+  expect(await isPresented(error)).toBe(false);
+  await expect.poll(() => seenRunErrorCount(page)).toBe(recordedErrorCount + 1);
+
+  await newSpaceDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(newSpaceDialog).toHaveCount(0);
+  await expect.poll(() => isPresented(error)).toBe(true);
+  await expect.poll(() => seenRunErrorCount(page)).toBe(recordedErrorCount + 2);
+  await page.reload();
+  await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
+  await expect(error).toBeHidden();
 });
