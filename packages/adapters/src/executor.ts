@@ -3279,7 +3279,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             attempt.id,
             "setup_failed",
             "Run setup failed; retrying",
-          );
+          ).catch(() => undefined);
           if (computerBusy) {
             await deps.jobs.enqueue({
               ...runContinueJob(runId),
