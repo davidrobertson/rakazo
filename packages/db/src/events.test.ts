@@ -205,8 +205,12 @@ describe("pauseRunForInput", () => {
   it("stores the paused run, prompt, and status event in one transaction", async () => {
     const fanout = new TestFanout();
     const publish = vi.spyOn(fanout, "publish");
+    const finishedAt = new Date("2026-09-01T12:00:00.000Z");
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "thread-1" }]),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: "thread-1" }])
+        .mockResolvedValueOnce([{ now: finishedAt }]),
       run: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findUnique: vi.fn().mockResolvedValue({
@@ -269,6 +273,11 @@ describe("pauseRunForInput", () => {
         data: { status: "waiting_input", leaseOwner: null, leaseExpiresAt: null },
       }),
     );
+    expect(tx.attempt.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "waiting_input", finishedAt }),
+      }),
+    );
     expect(tx.event.create.mock.calls.map(([input]) => input.data.type)).toEqual([
       "thread.message.created",
       "run.waiting_input",
@@ -281,8 +290,12 @@ describe("pauseRunForTakeover", () => {
   it("stores the paused run, attempt, and takeover event in one transaction", async () => {
     const fanout = new TestFanout();
     const publish = vi.spyOn(fanout, "publish");
+    const finishedAt = new Date("2026-09-01T12:00:00.000Z");
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "thread-1" }]),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: "thread-1" }])
+        .mockResolvedValueOnce([{ now: finishedAt }]),
       run: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findUnique: vi.fn().mockResolvedValue({ status: "waiting_takeover" }),
@@ -330,7 +343,9 @@ describe("pauseRunForTakeover", () => {
       }),
     );
     expect(tx.attempt.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "waiting_takeover" }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "waiting_takeover", finishedAt }),
+      }),
     );
     expect(tx.event.create).toHaveBeenCalledWith(
       expect.objectContaining({

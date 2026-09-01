@@ -66,6 +66,7 @@ import {
   appendEventInTransaction,
   createSpaceForMember,
   createThreadMessageInTransaction,
+  databaseNow,
   effectiveMemoryScope,
   findDefaultModelCredential,
   findModelCredential,
@@ -77,6 +78,9 @@ import {
   SpaceLimitError,
   type ThreadEvents,
 } from "@rakazo/db";
+
+export { databaseNow } from "@rakazo/db";
+
 import { parse as parseShellCommand } from "shell-quote";
 import {
   connectAgent,
@@ -3468,13 +3472,6 @@ export async function completedActivityBlocksForAttempts(
   } catch {
     return blocks;
   }
-}
-
-/** Returns a timestamp from the database clock shared by every worker. */
-export async function databaseNow(prisma: Pick<PrismaClient, "$queryRaw">): Promise<Date> {
-  const [row] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
-  if (!row) throw new Error("database clock unavailable");
-  return row.now;
 }
 
 /** Closes one active attempt using the database clock shared by every worker. */

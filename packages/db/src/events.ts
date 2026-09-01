@@ -16,6 +16,13 @@ const EVENT_BATCH_SIZE = 200;
 const PUSH_CATCH_UP_MS = 30_000;
 const POLL_ONLY_CATCH_UP_MS = 400;
 
+/** Returns a timestamp from the database clock shared by every worker. */
+export async function databaseNow(prisma: Pick<PrismaClient, "$queryRaw">): Promise<Date> {
+  const [row] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+  if (!row) throw new Error("database clock unavailable");
+  return row.now;
+}
+
 export interface AppendEventInput {
   spaceId: string;
   threadId: string;
@@ -556,7 +563,7 @@ export async function pauseRunForInput(
         fence: input.leaseFence,
         status: "running",
       },
-      data: { status: "waiting_input", finishedAt: new Date() },
+      data: { status: "waiting_input", finishedAt: await databaseNow(tx) },
     });
     if (attempt.count !== 1) throw new Error("Active run attempt was not available to pause");
 
@@ -625,7 +632,7 @@ export async function pauseRunForTakeover(
         fence: input.leaseFence,
         status: "running",
       },
-      data: { status: "waiting_takeover", finishedAt: new Date() },
+      data: { status: "waiting_takeover", finishedAt: await databaseNow(tx) },
     });
     if (attempt.count !== 1) throw new Error("Active run attempt was not available to pause");
 
@@ -742,7 +749,7 @@ export async function finalizeRun(
       if (error instanceof RunHistoryWriteError) return null;
       throw error;
     }
-    const now = new Date();
+    const now = await databaseNow(tx);
     const terminal = await tx.run.updateMany({
       where: {
         id: input.runId,
