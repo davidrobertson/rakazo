@@ -6,6 +6,7 @@ import {
   completionMarksUnread,
   completionMessageSegments,
   completionNotificationBody,
+  createRunAttempt,
   databaseNow,
   finishRunningAttempt,
   subagentMarksUnread,
@@ -155,6 +156,25 @@ describe("databaseNow", () => {
 
     await expect(databaseNow({ $queryRaw: queryRaw } as never)).resolves.toEqual(now);
     expect(queryRaw).toHaveBeenCalledOnce();
+  });
+});
+
+describe("createRunAttempt", () => {
+  it("releases the acquired computer lease when the database clock fails", async () => {
+    const clockError = new Error("database clock unavailable");
+    const releaseLease = vi.fn(async () => undefined);
+    const prisma = {
+      $queryRaw: vi.fn(async () => {
+        throw clockError;
+      }),
+      attempt: { create: vi.fn() },
+    };
+
+    await expect(createRunAttempt(prisma as never, "run-1", 3, releaseLease)).rejects.toBe(
+      clockError,
+    );
+    expect(releaseLease).toHaveBeenCalledOnce();
+    expect(prisma.attempt.create).not.toHaveBeenCalled();
   });
 });
 

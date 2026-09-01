@@ -796,15 +796,9 @@ export function createRunExecutor(deps: ExecutorDeps) {
         await requeueComputerRun(deps, runId, workerId, fence, resumeCheckpoint);
         return;
       }
-      const attemptStartedAt = await databaseNow(deps.prisma);
-      const attempt = await deps.prisma.attempt
-        .create({
-          data: { runId, fence, status: "running", startedAt: attemptStartedAt },
-        })
-        .catch(async (error) => {
-          await releaseComputerExecutionLease(deps.prisma, computerLease).catch(() => undefined);
-          throw error;
-        });
+      const attempt = await createRunAttempt(deps.prisma, runId, fence, () =>
+        releaseComputerExecutionLease(deps.prisma, computerLease),
+      );
 
       let leaseValid = true;
       let lastLeaseCheckAt = 0;
@@ -3471,6 +3465,24 @@ export async function completedActivityBlocksForAttempts(
     );
   } catch {
     return blocks;
+  }
+}
+
+/** Starts one attempt on the database clock and releases its computer lease on failure. */
+export async function createRunAttempt(
+  prisma: Pick<PrismaClient, "$queryRaw" | "attempt">,
+  runId: string,
+  fence: number,
+  releaseLease: () => Promise<unknown>,
+) {
+  try {
+    const startedAt = await databaseNow(prisma);
+    return await prisma.attempt.create({
+      data: { runId, fence, status: "running", startedAt },
+    });
+  } catch (error) {
+    await releaseLease().catch(() => undefined);
+    throw error;
   }
 }
 

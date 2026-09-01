@@ -41,6 +41,13 @@ test("tool activity stays collapsed until disclosed", async ({ page }, testInfo)
 
       await summary.click();
       await expect(details).toHaveAttribute("open", "");
+      await expect(details).not.toContainText("undefined");
+      await expect(rows.locator(".sr-only").first()).toHaveText("Completed:");
+      await expect(rows.locator(".sr-only").last()).toHaveText(
+        state.live ? "In progress:" : "Completed:",
+      );
+      await expect(rows.getByText("Launch app", { exact: true })).toBeVisible();
+      await expect(rows.getByText("Shell ×2", { exact: true })).toBeVisible();
       await summary.click();
       await summary.focus();
       await page.keyboard.press("Enter");
