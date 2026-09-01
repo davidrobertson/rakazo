@@ -101,6 +101,8 @@ test("a covered run error is not remembered until it is presented", async ({ pag
   await expect(error).toBeHidden();
 
   await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(page.locator("main")).not.toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("main")).toHaveJSProperty("inert", false);
   await page.getByPlaceholder(/^Message /).fill("fail this run");
   const modalSendButton = await page.getByRole("button", { name: "Send" }).elementHandle();
   if (!modalSendButton) throw new Error("Send button not found");
