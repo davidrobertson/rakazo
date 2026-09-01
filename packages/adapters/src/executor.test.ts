@@ -634,6 +634,43 @@ description: Prepare standup notes
     expect(enqueue).toHaveBeenCalledOnce();
   });
 
+  it("requeues a recovered run when stale-attempt closure fails", async () => {
+    const recoveryError = new Error("attempt update unavailable");
+    const now = new Date("2026-09-01T12:00:00.000Z");
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    const enqueue = vi.fn(async () => undefined);
+    const prisma = {
+      $queryRaw: vi.fn(async () => [{ now }]),
+      run: {
+        findUnique: vi.fn(async () => ({
+          id: "run-1",
+          botId: "bot-1",
+          status: "running",
+          checkpoint: null,
+          leaseFence: 1,
+          leaseExpiresAt: new Date(now.getTime() - 1),
+        })),
+        findUniqueOrThrow: vi.fn(async () => ({ status: "leased", startedAt: now })),
+        updateMany,
+      },
+      attempt: {
+        updateMany: vi.fn(async () => {
+          throw recoveryError;
+        }),
+      },
+    } as unknown as PrismaClient;
+    const executor = createRunExecutor({ prisma, jobs: { enqueue } } as unknown as Parameters<
+      typeof createRunExecutor
+    >[0]);
+
+    await expect(executor.continueRun("run-1", "worker-1")).rejects.toBe(recoveryError);
+
+    expect(updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "queued" }) }),
+    );
+    expect(enqueue).toHaveBeenCalledOnce();
+  });
+
   it("resolves a per-bot model override with that provider’s credential", async () => {
     const findFirst = vi.fn(
       async (args: { where: { credential?: { provider?: string }; isDefault?: boolean } }) => {

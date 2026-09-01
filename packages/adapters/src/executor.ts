@@ -755,9 +755,6 @@ export function createRunExecutor(deps: ExecutorDeps) {
         },
       });
       if (leased.count !== 1) return;
-      if (recoveringExpiredLease) {
-        await closeStaleRunAttempts(deps.prisma, runId, fence, now);
-      }
 
       const current = await deps.prisma.run.findUniqueOrThrow({ where: { id: runId } });
       if (
@@ -774,6 +771,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
         data: { status: "running", startedAt: runStartedAt },
       });
       if (started.count !== 1) return;
+      if (recoveringExpiredLease) {
+        await closeStaleRunAttempts(deps.prisma, runId, fence, now).catch(async (error) => {
+          await requeueComputerRun(deps, runId, workerId, fence, resumeCheckpoint);
+          throw error;
+        });
+      }
       const leaseTarget = await deps.prisma.bot.findUniqueOrThrow({
         where: { id: run.botId },
         select: { computerId: true, computerSwitching: true },
