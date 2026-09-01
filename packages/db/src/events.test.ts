@@ -1241,7 +1241,7 @@ describe("sendUserMessage", () => {
         prompt: "hello",
         trigger: "follow_up",
       }),
-    ).resolves.toEqual({ messageId: "message-1", seq: 4, taskId: "task-0", runId: "run-0" });
+    ).resolves.toEqual({ messageId: "message-1", seq: 4, taskId: null, runId: "run-0" });
 
     expect(tx.task.create).not.toHaveBeenCalled();
     expect(tx.run.create).not.toHaveBeenCalled();

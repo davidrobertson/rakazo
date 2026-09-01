@@ -1151,7 +1151,7 @@ export function createRouter(deps: RouterDeps) {
             prompt: input.text,
             trigger: "follow_up",
           });
-          if (sent.runId) {
+          if (sent.taskId && sent.runId) {
             await deps.jobs.enqueue(runContinueJob(sent.runId)).catch((error) => {
               console.error("follow-up enqueue", error);
             });
@@ -1212,15 +1212,21 @@ export function createRouter(deps: RouterDeps) {
             await tx.message.update({ where: { id: message.id }, data: { runId: run.id } });
           } else {
             await tx.steeringMessage.create({
-              data: { messageId: message.id, botId, userId: context.actor.userId },
+              data: {
+                messageId: message.id,
+                botId,
+                userId: context.actor.userId,
+                runId: active.id,
+              },
             });
+            await tx.message.update({ where: { id: message.id }, data: { runId: active.id } });
           }
           const event = await appendEventInTransaction(tx, {
             spaceId: context.actor.spaceId,
             threadId: target.threadId,
             botId,
             type: "thread.message.created",
-            runId: run?.id,
+            runId: run?.id ?? active?.id,
             payload: { messageId: message.id, role: "user", blocks },
           });
           await touchGroupUpdatedAt(tx, target.groupId);

@@ -350,13 +350,14 @@ export async function sendUserMessage(
       include: { sourceRuns: { orderBy: { createdAt: "asc" }, take: 1 } },
     });
     if (!message) return null;
+    const created = message.sourceRuns[0];
     const run =
-      message.sourceRuns[0] ??
+      created ??
       (message.runId ? await prisma.run.findUnique({ where: { id: message.runId } }) : null);
     return {
       messageId: message.id,
       seq: message.seq,
-      taskId: run?.taskId ?? null,
+      taskId: created?.taskId ?? null,
       runId: run?.id ?? null,
     };
   };
@@ -447,7 +448,7 @@ export async function sendUserMessage(
   return {
     messageId: committed.message.id,
     seq: committed.message.seq,
-    taskId: committed.task?.id ?? committed.busy?.taskId ?? null,
+    taskId: committed.task?.id ?? null,
     runId: committed.run?.id ?? committed.busy?.id ?? null,
   };
 }
