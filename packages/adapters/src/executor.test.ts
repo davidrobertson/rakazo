@@ -115,6 +115,49 @@ describe("steering attachment hydration", () => {
     expect(withoutExpectedImages.unavailableInstruction).toBe("");
   });
 
+  it("treats unreadable image bytes as missing instead of failing hydration", async () => {
+    const blocks: MessageBlock[] = [
+      { kind: "image", artifactId: "image-1", name: "one.png", mimeType: "image/png" },
+      { kind: "image", artifactId: "image-2", name: "two.png", mimeType: "image/png" },
+    ];
+    const images = await loadCurrentTurnImages(
+      {
+        artifacts: {
+          get: vi.fn(async (storageKey: string) => {
+            if (storageKey === "bad.png") throw new Error("read failed");
+            return new Uint8Array([1]);
+          }),
+        },
+        prisma: {
+          artifact: {
+            findMany: vi.fn(async () => [
+              { id: "image-1", storageKey: "one.png" },
+              { id: "image-2", storageKey: "bad.png" },
+            ]),
+          },
+        },
+      } as never,
+      blocks,
+      {
+        operationId: "run-1",
+        traceId: "run-1",
+        spaceId: "space-1",
+        userId: "user-1",
+        botId: "bot-1",
+        runId: "run-1",
+        signal: new AbortController().signal,
+      },
+    );
+    expect(images).toHaveLength(1);
+    expect(missingTurnImagesInstruction(blocks, images)).toContain("do not guess its contents");
+    const settled = await settleSteeringAttachmentLoads(
+      Promise.resolve(images),
+      Promise.resolve([]),
+      blocks,
+    );
+    expect(settled.unavailableInstruction).toContain("do not guess its contents");
+  });
+
   it("warns when an ordinary turn expects more images than were loaded", () => {
     const blocks: MessageBlock[] = [
       { kind: "image", artifactId: "image-1", name: "one.png", mimeType: "image/png" },

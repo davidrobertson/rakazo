@@ -3853,12 +3853,14 @@ export async function loadCurrentTurnImages(
   for (const block of imageBlocks) {
     const row = byId.get(block.artifactId);
     if (!row || !isAttachmentImageMimeType(block.mimeType)) continue;
-    const bytes = await deps.artifacts.get(row.storageKey, context);
-    images.push({
-      name: block.name,
-      mimeType: block.mimeType as "image/jpeg" | "image/png" | "image/webp" | "image/gif",
-      data: bytes,
-    });
+    try {
+      const bytes = await deps.artifacts.get(row.storageKey, context);
+      images.push({
+        name: block.name,
+        mimeType: block.mimeType as "image/jpeg" | "image/png" | "image/webp" | "image/gif",
+        data: bytes,
+      });
+    } catch {}
   }
 
   return images.length ? images : undefined;
