@@ -81,10 +81,13 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
   private handlers: BackgroundJobHandlers | undefined;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private readonly keyed = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly active = new Set<Promise<void>>();
   private closed = false;
+  private closing = false;
 
   async enqueue(job: BackgroundJob): Promise<void> {
     if (this.closed) throw new Error("Background job publisher is closed");
+    if (this.closing) return;
     if (job.replaceKey) await this.cancel(job.replaceKey);
     const delay = job.availableAt ? Math.max(0, job.availableAt.getTime() - Date.now()) : 0;
     const timer = setTimeout(() => {
@@ -94,9 +97,11 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
       }
       const handlers = this.handlers;
       if (!handlers) return;
-      void dispatchBackgroundJob(handlers, job.name, job.payload).catch((error) =>
-        console.error(job.name, error),
-      );
+      const active = dispatchBackgroundJob(handlers, job.name, job.payload).catch((error) => {
+        console.error(job.name, error);
+      });
+      this.active.add(active);
+      void active.finally(() => this.active.delete(active));
     }, delay);
     this.timers.add(timer);
     if (job.replaceKey) this.keyed.set(job.replaceKey, timer);
@@ -119,11 +124,14 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
     this.keyed.clear();
+    await Promise.all(this.active);
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
-    this.closed = true;
+    this.closing = true;
     await this.stop();
+    this.closed = true;
+    this.closing = false;
   }
 }

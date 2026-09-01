@@ -67,4 +67,39 @@ describe("InMemoryJobQueue", () => {
     expect(target["computer.sleep"]).toHaveBeenCalledTimes(1);
     await queue.close();
   });
+
+  it("waits for an active handler before closing", async () => {
+    const queue = new InMemoryJobQueue();
+    let releaseHandler: () => void = () => undefined;
+    let markStarted: () => void = () => undefined;
+    let nestedEnqueueFailed = false;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const target = handlers();
+    target["run.continue"] = vi.fn(async () => {
+      markStarted();
+      await new Promise<void>((resolve) => {
+        releaseHandler = resolve;
+      });
+      try {
+        await queue.enqueue({ name: "computer.sleep", payload: { computerId: "computer-1" } });
+      } catch {
+        nestedEnqueueFailed = true;
+      }
+    });
+    await queue.start(target);
+    await queue.enqueue({ name: "run.continue", payload: { runId: "run-1" } });
+    await started;
+
+    const closing = queue.close();
+    const closeState = await Promise.race([
+      closing.then(() => "closed" as const),
+      new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 5)),
+    ]);
+    releaseHandler();
+    await closing;
+    expect(closeState).toBe("waiting");
+    expect(nestedEnqueueFailed).toBe(false);
+  });
 });
