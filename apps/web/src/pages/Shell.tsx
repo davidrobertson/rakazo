@@ -1614,6 +1614,10 @@ export function ShellPage() {
   const composerRunning = currentRuns.some((run) => isActive(run.status));
   const runError = threadRunError(activeSnapshot, dismissedRunErrorIds);
   const displayedRunError = !sendError && !dictationError ? runError : null;
+  const displayedRunErrorId = displayedRunError ? (activeSnapshot?.run?.id ?? null) : null;
+  const handleRunErrorPresented = useCallback((runId: string) => {
+    rememberSeenRunErrorId(runId);
+  }, []);
   const transcriptMessages = useMemo(
     () => userVisibleMessages(activeSnapshot?.messages ?? [], { includePeerReceipts: true }),
     [activeSnapshot?.messages],
@@ -2274,7 +2278,7 @@ export function ShellPage() {
   function dismissComposerError() {
     // The strip shows one message at a time, so only dismiss the run failure when it is the
     // one on screen; otherwise a live run would be silenced before it has even failed.
-    const failedRunId = displayedRunError ? activeSnapshot?.run?.id : null;
+    const failedRunId = displayedRunErrorId;
     setSendError(null);
     setDictationError(null);
     if (failedRunId) {
@@ -2947,10 +2951,8 @@ export function ShellPage() {
           sendError={sendError}
           dictationError={dictationError}
           runError={displayedRunError}
-          onRunErrorPresented={() => {
-            const failedRunId = displayedRunError ? activeSnapshot?.run?.id : null;
-            if (failedRunId) rememberSeenRunErrorId(failedRunId);
-          }}
+          runErrorId={displayedRunErrorId}
+          onRunErrorPresented={handleRunErrorPresented}
           onDismissError={dismissComposerError}
           sending={sending}
           fileInputRef={fileInputRef}
@@ -4102,6 +4104,7 @@ const Composer = memo(function Composer({
   sendError,
   dictationError,
   runError,
+  runErrorId,
   onRunErrorPresented,
   onDismissError,
   sending,
@@ -4130,7 +4133,8 @@ const Composer = memo(function Composer({
   sendError: string | null;
   dictationError: string | null;
   runError: string | null;
-  onRunErrorPresented: () => void;
+  runErrorId: string | null;
+  onRunErrorPresented: (runId: string) => void;
   onDismissError: () => void;
   sending: boolean;
   fileInputRef: RefObject<HTMLInputElement | null>;
@@ -4159,6 +4163,7 @@ const Composer = memo(function Composer({
   const [selectedMentions, setSelectedMentions] = useState<ComposerMention[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const runErrorRef = useRef<HTMLDivElement>(null);
+  const presentedRunErrorIdRef = useRef<string | null>(null);
   const mentionListboxId = useId();
   const dragDepth = useRef(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
@@ -4169,7 +4174,8 @@ const Composer = memo(function Composer({
     pendingAttachments.length > 0;
 
   useEffect(() => {
-    if (!runError) return;
+    if (!runError || !runErrorId) return;
+    const currentRunErrorId = runErrorId;
     let frame = 0;
     function recordIfPresented() {
       cancelAnimationFrame(frame);
@@ -4182,7 +4188,9 @@ const Composer = memo(function Composer({
           rect.top + rect.height / 2,
         );
         if (topElement && (topElement === element || element.contains(topElement))) {
-          onRunErrorPresented();
+          if (presentedRunErrorIdRef.current === currentRunErrorId) return;
+          presentedRunErrorIdRef.current = currentRunErrorId;
+          onRunErrorPresented(currentRunErrorId);
         }
       });
     }
@@ -4194,7 +4202,7 @@ const Composer = memo(function Composer({
       document.removeEventListener("transitionend", recordIfPresented);
       document.removeEventListener("visibilitychange", recordIfPresented);
     };
-  }, [onRunErrorPresented, runError]);
+  }, [onRunErrorPresented, runError, runErrorId]);
 
   useLayoutEffect(() => {
     const el = textareaRef.current;

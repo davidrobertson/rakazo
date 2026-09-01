@@ -1,5 +1,16 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import { captureScreenshot, completeOnboarding, signup } from "./helpers";
+
+function isPresented(error: Locator) {
+  return error.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const topElement = document.elementFromPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    );
+    return topElement === element || (topElement !== null && element.contains(topElement));
+  });
+}
 
 test("a failed run is visible once without returning after reload", async ({ page }, testInfo) => {
   const stamp = Date.now();
@@ -49,10 +60,12 @@ test("a covered run error is not remembered until it is presented", async ({ pag
 
   const error = page.getByTestId("composer-error");
   await expect(error).not.toBeEmpty({ timeout: 30_000 });
+  expect(await isPresented(error)).toBe(false);
   await captureScreenshot(page, testInfo, "run-error-covered-by-mobile-navigation");
   await page.reload();
   await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
   await expect(error).toBeVisible();
+  expect(await isPresented(error)).toBe(true);
   await captureScreenshot(page, testInfo, "covered-run-error-presented-after-reload");
 
   await page.reload();
@@ -77,6 +90,7 @@ test("a covered run error is not remembered until it is presented", async ({ pag
     );
   await page.getByRole("button", { name: "Close navigation" }).click();
   await drawerClosed;
+  expect(await isPresented(error)).toBe(true);
   await captureScreenshot(page, testInfo, "covered-run-error-presented-after-drawer-close");
 
   await page.reload();
