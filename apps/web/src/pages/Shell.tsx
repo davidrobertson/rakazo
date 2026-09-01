@@ -44,6 +44,7 @@ import {
   type ComposerMention,
   clampMentionHighlightIndex,
   cronFromPreset,
+  formatDurationMs,
   groupBotsForSidebar,
   inferAttachmentMimeType,
   isActive,
@@ -4907,6 +4908,11 @@ const MessageView = memo(function MessageView({
       (block) => block.kind === "text" || block.kind === "progress" || block.kind === "steps",
     );
   const isLive = message.id.startsWith("progress:");
+  const toolActivityLabel = (durationMs?: number) => {
+    if (isLive) return t`Working…`;
+    const duration = formatDurationMs(durationMs);
+    return duration ? t`Worked for ${duration}` : t`Worked`;
+  };
   const parentJumpId = replyPreview?.id ?? replyToMessageId;
   const messageContext = (
     <>
@@ -4945,7 +4951,7 @@ const MessageView = memo(function MessageView({
                   <ToolActivityDisclosure
                     key={i}
                     live={isLive}
-                    label={isLive ? t`Working…` : t`Actions`}
+                    label={toolActivityLabel(block.durationMs)}
                   >
                     <ToolSteps
                       steps={block.steps}
@@ -5055,7 +5061,7 @@ const MessageView = memo(function MessageView({
                 className="max-w-[74%] space-y-1.5 rounded-[20px] bg-[#1A1A1D] px-[18px] py-3"
                 dir="ltr"
               >
-                <ToolActivityDisclosure live={isLive} label={isLive ? t`Working…` : t`Actions`}>
+                <ToolActivityDisclosure live={isLive} label={toolActivityLabel(block.durationMs)}>
                   <ToolSteps
                     steps={block.steps}
                     currentIndex={isLive ? block.steps.length - 1 : undefined}

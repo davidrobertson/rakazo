@@ -1,3 +1,6 @@
+/// <reference types="node" />
+
+import { readFileSync } from "node:fs";
 import { i18n } from "@lingui/core";
 import { beforeEach, describe, expect, it } from "vitest";
 import de from "../../scripts/translations-de.json";
@@ -22,6 +25,17 @@ describe("lingui catalogs", () => {
         message: "Cancel new bot",
       }),
     ).toBe("Cancel new bot");
+  });
+
+  it("keeps completed activity source copy in every extracted catalog", () => {
+    for (const locale of ["en", "de", "ko", "tr", "hi", "pt-BR"]) {
+      const catalog = readFileSync(
+        new URL(`../locales/${locale}/messages.po`, import.meta.url),
+        "utf8",
+      );
+      expect(catalog).toContain('msgid "Worked"');
+      expect(catalog).toContain('msgid "Worked for {duration}"');
+    }
   });
 
   it("formats ICU cron-style messages with reordered placeholders", () => {

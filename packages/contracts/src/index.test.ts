@@ -20,6 +20,17 @@ import {
 } from "./index.js";
 
 describe("contracts", () => {
+  it("keeps legacy steps blocks compatible while accepting a completed duration", () => {
+    const steps = [{ label: "Shell", count: 1 }];
+    expect(MessageBlock.parse({ kind: "steps", steps })).toEqual({ kind: "steps", steps });
+    expect(MessageBlock.parse({ kind: "steps", steps, durationMs: 103_000 })).toEqual({
+      kind: "steps",
+      steps,
+      durationMs: 103_000,
+    });
+    expect(MessageBlock.safeParse({ kind: "steps", steps, durationMs: -1 }).success).toBe(false);
+  });
+
   it("limits reactions to persisted non-channel messages", () => {
     expect(
       canReactToThreadMessage({ id: "message-1", blocks: [{ kind: "text", text: "hi" }] }),

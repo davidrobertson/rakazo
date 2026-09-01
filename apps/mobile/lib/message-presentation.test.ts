@@ -37,6 +37,7 @@ describe("mobile message presentation", () => {
     const blocks = [
       {
         kind: "steps",
+        durationMs: 103_000,
         steps: [
           { label: "Read file", count: 1 },
           { label: "Message bot", count: 1 },
@@ -46,7 +47,7 @@ describe("mobile message presentation", () => {
     ] as MessageBlock[];
 
     expect(toolBlocksForMessage(blocks)).toEqual([
-      { kind: "steps", steps: [{ label: "Read file", count: 1 }] },
+      { kind: "steps", durationMs: 103_000, steps: [{ label: "Read file", count: 1 }] },
     ]);
     expect(
       hasVisibleMessagePresentation([
@@ -70,6 +71,7 @@ describe("mobile message presentation", () => {
   it("keeps tool usage in its original place between response content", () => {
     const tool: Extract<MessageBlock, { kind: "steps" }> = {
       kind: "steps",
+      durationMs: 103_000,
       steps: [{ label: "Read file", count: 1 }],
     };
 

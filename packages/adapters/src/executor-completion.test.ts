@@ -1,10 +1,46 @@
 import { describe, expect, it } from "vitest";
 import {
+  completedActivityBlocks,
   completionMarksUnread,
   completionMessageSegments,
   completionNotificationBody,
   subagentMarksUnread,
 } from "./executor.js";
+
+describe("completedActivityBlocks", () => {
+  it("stamps the turn duration on only the final steps block", () => {
+    expect(
+      completedActivityBlocks(
+        [
+          { kind: "steps", steps: [{ label: "Read file", count: 1 }] },
+          { kind: "text", text: "Checked it. " },
+          { kind: "steps", steps: [{ label: "Shell", count: 1 }] },
+          { kind: "text", text: "Done." },
+        ],
+        1_000,
+        104_000,
+      ),
+    ).toEqual([
+      { kind: "steps", steps: [{ label: "Read file", count: 1 }] },
+      { kind: "text", text: "Checked it. " },
+      { kind: "steps", steps: [{ label: "Shell", count: 1 }], durationMs: 103_000 },
+      { kind: "text", text: "Done." },
+    ]);
+  });
+
+  it("clamps a clock reversal and leaves tool-free completions unchanged", () => {
+    expect(
+      completedActivityBlocks(
+        [{ kind: "steps", steps: [{ label: "Shell", count: 1 }] }],
+        2_000,
+        1_000,
+      ),
+    ).toEqual([{ kind: "steps", steps: [{ label: "Shell", count: 1 }], durationMs: 0 }]);
+    expect(completedActivityBlocks([{ kind: "text", text: "Done." }], 1_000, 2_000)).toEqual([
+      { kind: "text", text: "Done." },
+    ]);
+  });
+});
 
 describe("completionMessageSegments", () => {
   it("keeps visible tool activity without appending a generic completion claim", () => {

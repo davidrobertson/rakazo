@@ -49,7 +49,7 @@ export function ToolActivityDisclosure({
 }) {
   return (
     <details
-      key={live ? "working" : "actions"}
+      key={live ? "working" : "worked"}
       data-testid="tool-activity"
       data-live={live || undefined}
       className="group"

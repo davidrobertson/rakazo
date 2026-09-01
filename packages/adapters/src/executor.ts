@@ -758,9 +758,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
       ) {
         assertTransition(current.status as RunStatus, "running");
       }
+      const runStartedAt = current.startedAt ?? new Date();
       const started = await deps.prisma.run.updateMany({
         where: { id: runId, status: "leased", leaseOwner: workerId, leaseFence: fence },
-        data: { status: "running", startedAt: current.startedAt ?? new Date() },
+        data: { status: "running", startedAt: runStartedAt },
       });
       if (started.count !== 1) return;
       const leaseTarget = await deps.prisma.bot.findUniqueOrThrow({
@@ -3098,7 +3099,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
               skipEmptyFallback: publishedTerminalSubagent,
             });
           }
-          const blocks = handedOff ? [] : redactBlocks(messageSegments, runSecrets);
+          const blocks = handedOff
+            ? []
+            : redactBlocks(
+                completedActivityBlocks(messageSegments, runStartedAt.getTime(), Date.now()),
+                runSecrets,
+              );
           const text = handedOff
             ? ""
             : redactSecrets(completionNotificationBody(assembled, blocks), runSecrets);
@@ -3397,6 +3403,21 @@ export function completionMessageSegments(
   }
   if (options?.allowSilentEmpty || options?.skipEmptyFallback) return [];
   return [{ kind: "text", text: fallback }];
+}
+
+/** Stamps one turn-level duration without implying that each tool segment took the whole time. */
+export function completedActivityBlocks(
+  blocks: MessageBlock[],
+  startedAtMs: number,
+  completedAtMs: number,
+): MessageBlock[] {
+  const index = blocks.findLastIndex((block) => block.kind === "steps");
+  if (index < 0) return blocks;
+  return blocks.map((block, blockIndex) =>
+    blockIndex === index && block.kind === "steps"
+      ? { ...block, durationMs: Math.max(0, Math.round(completedAtMs - startedAtMs)) }
+      : block,
+  );
 }
 
 /** User-facing text for completion notifications; empty when only tool/step activity remains. */
