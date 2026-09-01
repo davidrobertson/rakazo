@@ -27,6 +27,7 @@ describe("ToolActivityDisclosure", () => {
 
   it("collapses again when live work completes", () => {
     const container = document.createElement("div");
+    document.body.append(container);
     const root = createRoot(container);
     const render = (live: boolean) =>
       flushSync(() =>
@@ -38,12 +39,17 @@ describe("ToolActivityDisclosure", () => {
       );
 
     render(true);
-    container.querySelector("summary")?.click();
+    const summary = container.querySelector("summary");
+    summary?.focus();
+    summary?.click();
     expect(container.querySelector("details")?.open).toBe(true);
+    expect(document.activeElement).toBe(summary);
 
     render(false);
     expect(container.querySelector("details")?.open).toBe(false);
     expect(container.querySelector("summary")?.textContent).toContain("Worked for 1m 43s");
+    expect(document.activeElement).toBe(summary);
     root.unmount();
+    container.remove();
   });
 });

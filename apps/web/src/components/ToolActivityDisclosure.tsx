@@ -1,6 +1,6 @@
 import type { ThreadMessage } from "@rakazo/contracts";
 import { ChevronRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 
 export function ToolSteps({
   steps,
@@ -47,9 +47,14 @@ export function ToolActivityDisclosure({
   label: string;
   children: ReactNode;
 }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (detailsRef.current) detailsRef.current.open = false;
+  }, [live]);
+
   return (
     <details
-      key={live ? "working" : "worked"}
+      ref={detailsRef}
       data-testid="tool-activity"
       data-live={live || undefined}
       className="group"

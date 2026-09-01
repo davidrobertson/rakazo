@@ -58,5 +58,21 @@ test("tool activity stays collapsed until disclosed", async ({ page }, testInfo)
       await captureScreenshot(page, testInfo, `${state.name}-expanded-${viewport.name}`);
     }
   }
+
+  await page.goto("/e2e/fixtures/tool-activity-disclosure.html?live=1");
+  const details = page.getByTestId("tool-activity");
+  const summary = details.locator("summary");
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  await expect(details).toHaveAttribute("open", "");
+  await page.evaluate(() =>
+    (window as unknown as { renderToolActivity: (live: boolean) => void }).renderToolActivity(
+      false,
+    ),
+  );
+  await expect(details).not.toHaveAttribute("open", "");
+  await expect(summary).toHaveText("Worked for 1m 43s");
+  await expect(summary).toBeFocused();
+
   expect(browserErrors).toEqual([]);
 });
