@@ -547,6 +547,7 @@ model Run {
   startedAt            DateTime?
   completedAt          DateTime?
   botOutcomeReturnedAt DateTime?
+  messagingMirroredAt  DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
   attempts             Attempt[]
@@ -558,6 +559,7 @@ model Run {
   @@index([status, leaseExpiresAt])
   @@index([status, updatedAt, id])
   @@index([botOutcomeReturnedAt, status])
+  @@index([trigger, status, messagingMirroredAt, updatedAt])
   @@index([spaceId, botId])
   @@index([sourceMessageId])
   @@index([threadId, status, createdAt])

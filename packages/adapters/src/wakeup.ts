@@ -80,16 +80,20 @@ export class GraphileJobWorkerHost implements JobWorkerHost {
 export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
   private handlers: BackgroundJobHandlers | undefined;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly scheduled = new Map<ReturnType<typeof setTimeout>, BackgroundJob>();
   private readonly keyed = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly active = new Set<Promise<void>>();
   private readonly closingJobs: BackgroundJob[] = [];
   private draining: Promise<void> | undefined;
   private closed = false;
+  private stopped = false;
   private closing = false;
+  private acceptingClosingJobs = false;
   private closeRequested = false;
 
   async enqueue(job: BackgroundJob): Promise<void> {
     if (this.closed) throw new Error("Background job publisher is closed");
+    if (this.stopped) throw new Error("Background job publisher is stopped");
     if (this.closing) {
       this.enqueueWhileClosing(job);
       return;
@@ -105,6 +109,7 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
     const delay = job.availableAt ? Math.max(0, job.availableAt.getTime() - Date.now()) : 0;
     const timer = setTimeout(() => {
       this.timers.delete(timer);
+      this.scheduled.delete(timer);
       if (job.replaceKey && this.keyed.get(job.replaceKey) === timer) {
         this.keyed.delete(job.replaceKey);
       }
@@ -113,6 +118,7 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
       void this.dispatch(handlers, job);
     }, delay);
     this.timers.add(timer);
+    this.scheduled.set(timer, job);
     if (job.replaceKey) this.keyed.set(job.replaceKey, timer);
   }
 
@@ -124,10 +130,12 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
     clearTimeout(timer);
     this.keyed.delete(replaceKey);
     this.timers.delete(timer);
+    this.scheduled.delete(timer);
   }
 
   async start(handlers: BackgroundJobHandlers): Promise<void> {
     this.handlers = handlers;
+    this.stopped = false;
   }
 
   async stop(): Promise<void> {
@@ -159,6 +167,7 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
       // schedulers reconcile them after restart. Never run them early.
       return;
     }
+    if (!this.acceptingClosingJobs) throw new Error("Background job publisher is closing");
     this.closingJobs.push(job);
   }
 
@@ -175,17 +184,29 @@ export class InMemoryJobQueue implements JobPublisher, JobWorkerHost {
 
   private async performDrain(): Promise<void> {
     this.closing = true;
-    for (const timer of this.timers) clearTimeout(timer);
-    this.timers.clear();
-    this.keyed.clear();
-    while (this.active.size > 0 || this.closingJobs.length > 0) {
-      await Promise.all(this.active);
-      const handlers = this.handlers;
-      if (!handlers) throw new Error("Background job publisher is closing");
-      for (const job of this.closingJobs.splice(0)) void this.dispatch(handlers, job);
+    this.acceptingClosingJobs = true;
+    for (const timer of this.timers) {
+      clearTimeout(timer);
+      const job = this.scheduled.get(timer);
+      if (job) this.enqueueWhileClosing(job);
     }
+    this.timers.clear();
+    this.scheduled.clear();
+    this.keyed.clear();
+    await Promise.all(this.active);
+    this.acceptingClosingJobs = false;
+    const handlers = this.handlers;
+    const closingJobs = this.closingJobs.splice(0);
+    if (!handlers && closingJobs.length > 0) {
+      throw new Error("Background job publisher is closing");
+    }
+    if (handlers) {
+      for (const job of closingJobs) void this.dispatch(handlers, job);
+    }
+    await Promise.all(this.active);
     this.handlers = undefined;
     this.closed = this.closeRequested;
+    this.stopped = !this.closeRequested;
     this.closing = false;
   }
 }

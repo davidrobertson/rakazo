@@ -79,10 +79,18 @@ describe("InMemoryJobQueue", () => {
     let markStarted: () => void = () => undefined;
     let nestedEnqueueFailed = false;
     let delayedEnqueueFailed = false;
+    let chainedEnqueueFailed = false;
     const started = new Promise<void>((resolve) => {
       markStarted = resolve;
     });
     const target = handlers();
+    target["computer.sleep"] = vi.fn(async () => {
+      try {
+        await queue.enqueue({ name: "run.continue", payload: { runId: "chained-run" } });
+      } catch {
+        chainedEnqueueFailed = true;
+      }
+    });
     target["run.continue"] = vi.fn(async () => {
       markStarted();
       await new Promise<void>((resolve) => {
@@ -127,7 +135,9 @@ describe("InMemoryJobQueue", () => {
     expect(closeState).toBe("waiting");
     expect(nestedEnqueueFailed).toBe(false);
     expect(delayedEnqueueFailed).toBe(false);
+    expect(chainedEnqueueFailed).toBe(true);
     expect(target["computer.sleep"]).toHaveBeenCalledTimes(1);
+    expect(target["run.continue"]).toHaveBeenCalledTimes(1);
     expect(target["routine.wakeup"]).not.toHaveBeenCalled();
     await queue.close();
   });
@@ -156,5 +166,32 @@ describe("InMemoryJobQueue", () => {
     releaseCancel();
 
     await expect(enqueue).rejects.toThrow("Background job publisher is closed");
+  });
+
+  it("drains an accepted immediate timer during close", async () => {
+    const queue = new InMemoryJobQueue();
+    const target = handlers();
+    await queue.start(target);
+
+    await queue.enqueue({ name: "computer.sleep", payload: { computerId: "computer-1" } });
+    await queue.close();
+
+    expect(target["computer.sleep"]).toHaveBeenCalledOnce();
+  });
+
+  it("rejects jobs after stop until the worker restarts", async () => {
+    const queue = new InMemoryJobQueue();
+    const target = handlers();
+    await queue.start(target);
+    await queue.stop();
+
+    await expect(
+      queue.enqueue({ name: "computer.sleep", payload: { computerId: "computer-1" } }),
+    ).rejects.toThrow("Background job publisher is stopped");
+
+    await queue.start(target);
+    await queue.enqueue({ name: "computer.sleep", payload: { computerId: "computer-1" } });
+    await queue.close();
+    expect(target["computer.sleep"]).toHaveBeenCalledOnce();
   });
 });
