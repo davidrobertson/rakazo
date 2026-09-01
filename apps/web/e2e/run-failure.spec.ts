@@ -58,4 +58,28 @@ test("a covered run error is not remembered until it is presented", async ({ pag
   await page.reload();
   await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
   await expect(error).toBeHidden();
+
+  await page.getByPlaceholder(/^Message /).fill("fail this run");
+  const nextSendButton = await page.getByRole("button", { name: "Send" }).elementHandle();
+  if (!nextSendButton) throw new Error("Send button not found");
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await nextSendButton.evaluate((button) => (button as HTMLButtonElement).click());
+  await expect(error).not.toBeEmpty({ timeout: 30_000 });
+
+  const drawerClosed = page
+    .locator("aside")
+    .first()
+    .evaluate(
+      (drawer) =>
+        new Promise<void>((resolve) => {
+          drawer.addEventListener("transitionend", () => resolve(), { once: true });
+        }),
+    );
+  await page.getByRole("button", { name: "Close navigation" }).click();
+  await drawerClosed;
+  await captureScreenshot(page, testInfo, "covered-run-error-presented-after-drawer-close");
+
+  await page.reload();
+  await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
+  await expect(error).toBeHidden();
 });

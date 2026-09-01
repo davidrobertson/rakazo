@@ -4187,9 +4187,11 @@ const Composer = memo(function Composer({
       });
     }
     recordIfPresented();
+    document.addEventListener("transitionend", recordIfPresented);
     document.addEventListener("visibilitychange", recordIfPresented);
     return () => {
       cancelAnimationFrame(frame);
+      document.removeEventListener("transitionend", recordIfPresented);
       document.removeEventListener("visibilitychange", recordIfPresented);
     };
   }, [onRunErrorPresented, runError]);
