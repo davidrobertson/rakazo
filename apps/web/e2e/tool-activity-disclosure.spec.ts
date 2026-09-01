@@ -11,6 +11,17 @@ const states = [
 ];
 
 test("tool activity stays collapsed until disclosed", async ({ page }, testInfo) => {
+  const browserErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(`console: ${message.text()}`);
+  });
+  page.on("pageerror", (error) => browserErrors.push(`page: ${error.message}`));
+  page.on("requestfailed", (request) =>
+    browserErrors.push(
+      `network: ${request.method()} ${request.url()} ${request.failure()?.errorText}`,
+    ),
+  );
+
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     for (const state of states) {
@@ -20,6 +31,9 @@ test("tool activity stays collapsed until disclosed", async ({ page }, testInfo)
       const rows = page.getByTestId("tool-rows");
 
       await expect(summary).toHaveText(state.label);
+      const summaryBox = await summary.boundingBox();
+      expect(summaryBox?.height).toBeGreaterThanOrEqual(24);
+      expect(summaryBox?.width).toBeGreaterThanOrEqual(24);
       await expect(details).not.toHaveAttribute("open", "");
       await expect(rows).not.toBeVisible();
       await expect(page.getByTestId("final-response")).toHaveCount(state.live ? 0 : 1);
@@ -44,4 +58,5 @@ test("tool activity stays collapsed until disclosed", async ({ page }, testInfo)
       await captureScreenshot(page, testInfo, `${state.name}-expanded-${viewport.name}`);
     }
   }
+  expect(browserErrors).toEqual([]);
 });
