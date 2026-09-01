@@ -12,7 +12,6 @@ import {
   attachmentsForThread,
   buildComposerMentionOptions,
   type ComposerMention,
-  formatDurationMs,
   isApprovalAskBlock,
   isRunTerminalEvent,
   isSecretAskBlock,
@@ -84,6 +83,7 @@ import {
   hasVisibleMessagePresentation,
   isCenteredAgentEvent,
   messagePresentationSegments,
+  toolActivityPresentation,
   toolOwnerId,
 } from "../lib/message-presentation";
 import {
@@ -2428,8 +2428,11 @@ function ExpandableToolBlock({
             : []),
           ...(block.pendingToolNames ?? []),
         ].filter(Boolean);
-  const duration = block.kind === "steps" ? formatDurationMs(block.durationMs) : null;
-  const title = live ? "Working…" : duration ? `Worked for ${duration}` : "Worked";
+  const { title, accessibilityLabel, accessibilityState } = toolActivityPresentation(
+    block.kind === "steps" ? block.durationMs : undefined,
+    live,
+    expanded,
+  );
 
   return (
     <View
@@ -2440,8 +2443,8 @@ function ExpandableToolBlock({
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${expanded ? "Hide" : "Show"} ${title}`}
-        accessibilityState={{ expanded }}
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={accessibilityState}
         hitSlop={10}
         onPress={() => setExpanded((current) => !current)}
         style={{

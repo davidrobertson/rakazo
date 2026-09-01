@@ -4,9 +4,21 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ToolActivityDisclosure } from "./ToolActivityDisclosure";
+import { ToolActivityDisclosure, ToolSteps } from "./ToolActivityDisclosure";
 
 describe("ToolActivityDisclosure", () => {
+  it("gives tool rows localized state names without exposing status glyphs", () => {
+    const html = renderToStaticMarkup(
+      <ToolSteps
+        steps={[{ label: "Shell", count: 1 }]}
+        currentIndex={0}
+        completedLabel="Completed"
+        inProgressLabel="In progress"
+      />,
+    );
+    expect(html).toContain("In progress: ");
+    expect(html).toContain('aria-hidden="true"');
+  });
   it.each([
     [true, "Working…"],
     [false, "Worked for 1m 43s"],

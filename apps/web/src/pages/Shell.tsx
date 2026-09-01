@@ -4956,6 +4956,8 @@ const MessageView = memo(function MessageView({
                     <ToolSteps
                       steps={block.steps}
                       currentIndex={isCurrentBlock ? block.steps.length - 1 : undefined}
+                      completedLabel={t`Completed`}
+                      inProgressLabel={t`In progress`}
                     />
                   </ToolActivityDisclosure>
                 );
@@ -5065,6 +5067,8 @@ const MessageView = memo(function MessageView({
                   <ToolSteps
                     steps={block.steps}
                     currentIndex={isLive ? block.steps.length - 1 : undefined}
+                    completedLabel={t`Completed`}
+                    inProgressLabel={t`In progress`}
                   />
                 </ToolActivityDisclosure>
               </div>

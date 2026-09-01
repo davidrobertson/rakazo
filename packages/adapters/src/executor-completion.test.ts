@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  closeStaleRunAttempts,
   completedActivityBlocks,
   completedActivityBlocksForAttempts,
   completionMarksUnread,
   completionMessageSegments,
   completionNotificationBody,
+  databaseNow,
   subagentMarksUnread,
   workedDurationMs,
 } from "./executor.js";
@@ -107,6 +109,51 @@ describe("workedDurationMs", () => {
         1_000,
       ),
     ).toBe(0);
+  });
+
+  it("unions overlapping lease-recovery intervals instead of double counting workers", () => {
+    expect(
+      workedDurationMs(
+        [
+          {
+            id: "recovered",
+            startedAt: new Date(1_000),
+            finishedAt: new Date(11_000),
+          },
+          {
+            id: "current",
+            startedAt: new Date(6_000),
+            finishedAt: null,
+          },
+        ],
+        "current",
+        16_000,
+      ),
+    ).toBe(15_000);
+  });
+});
+
+describe("closeStaleRunAttempts", () => {
+  it("bounds open attempts from older fences at the database-clock recovery instant", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const recoveredAt = new Date("2026-09-01T12:00:00.000Z");
+
+    await closeStaleRunAttempts({ attempt: { updateMany } } as never, "run-1", 3, recoveredAt);
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { runId: "run-1", fence: { lt: 3 }, status: "running", finishedAt: null },
+      data: { status: "lease_recovered", finishedAt: recoveredAt },
+    });
+  });
+});
+
+describe("databaseNow", () => {
+  it("uses the database clock shared by recovering workers", async () => {
+    const now = new Date("2026-09-01T12:00:00.000Z");
+    const queryRaw = vi.fn().mockResolvedValue([{ now }]);
+
+    await expect(databaseNow({ $queryRaw: queryRaw } as never)).resolves.toEqual(now);
+    expect(queryRaw).toHaveBeenCalledOnce();
   });
 });
 

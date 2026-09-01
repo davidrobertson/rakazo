@@ -1,4 +1,19 @@
 import type { MessageBlock } from "@rakazo/contracts";
+import { formatDurationMs } from "@rakazo/core";
+
+export function toolActivityPresentation(
+  durationMs: number | undefined,
+  live: boolean,
+  expanded: boolean,
+) {
+  const duration = formatDurationMs(durationMs);
+  const title = live ? "Working…" : duration ? `Worked for ${duration}` : "Worked";
+  return {
+    title,
+    accessibilityLabel: `${expanded ? "Hide" : "Show"} ${title}`,
+    accessibilityState: { expanded },
+  };
+}
 
 export function isCenteredAgentEvent(blocks: readonly MessageBlock[]): boolean {
   return blocks.some(

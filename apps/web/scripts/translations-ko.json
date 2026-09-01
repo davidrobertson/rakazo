@@ -564,6 +564,8 @@
   "When to run": "실행 시간",
   "When to use": "언제 사용할지",
   "Where should bots run?": "Bot을 어디에서 실행할까요?",
+  "Worked": "작업함",
+  "Worked for {duration}": "{duration} 동안 작업함",
   "Working…": "처리 중…",
   "Space default": "스페이스 기본값",
   "You": "나",

@@ -4,11 +4,27 @@ import {
   hasVisibleMessagePresentation,
   isCenteredAgentEvent,
   messagePresentationSegments,
+  toolActivityPresentation,
   toolBlocksForMessage,
   toolOwnerId,
 } from "./message-presentation";
 
 describe("mobile message presentation", () => {
+  it.each([
+    [true, undefined, false, "Working…", "Show Working…"],
+    [false, 103_000, true, "Worked for 1m 43s", "Hide Worked for 1m 43s"],
+    [false, undefined, false, "Worked", "Show Worked"],
+  ])(
+    "exposes the tool disclosure copy and accessibility contract",
+    (live, durationMs, expanded, title, accessibilityLabel) => {
+      expect(toolActivityPresentation(durationMs, live, expanded)).toEqual({
+        title,
+        accessibilityLabel,
+        accessibilityState: { expanded },
+      });
+    },
+  );
+
   it("centers handoffs, inter-agent messages, and channel mirrors", () => {
     const blocks = [
       { kind: "handoff", fromBotId: "a", toBotId: "b", text: "Go" },

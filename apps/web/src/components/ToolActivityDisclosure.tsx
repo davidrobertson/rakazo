@@ -5,9 +5,13 @@ import { type ReactNode, useEffect, useRef } from "react";
 export function ToolSteps({
   steps,
   currentIndex,
+  completedLabel,
+  inProgressLabel,
 }: {
   steps: Extract<ThreadMessage["blocks"][number], { kind: "steps" }>["steps"];
   currentIndex?: number;
+  completedLabel: string;
+  inProgressLabel: string;
 }) {
   return (
     <div className="space-y-1.5" data-testid="tool-rows">
@@ -15,7 +19,9 @@ export function ToolSteps({
         const isCurrent = index === currentIndex;
         return (
           <div key={index} className="flex min-w-0 items-center gap-2">
+            <span className="sr-only">{isCurrent ? inProgressLabel : completedLabel}: </span>
             <span
+              aria-hidden
               className={`text-[13px] ${
                 isCurrent
                   ? "animate-[rkPulse_1.2s_ease-in-out_infinite] motion-reduce:animate-none"

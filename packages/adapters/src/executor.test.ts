@@ -527,6 +527,7 @@ description: Prepare standup notes
   it("consumes a persisted takeover checkpoint when claiming the run", async () => {
     const updateMany = vi.fn(async () => ({ count: 0 }));
     const prisma = {
+      $queryRaw: vi.fn(async () => [{ now: new Date("2026-09-01T12:00:00.000Z") }]),
       run: {
         findUnique: vi.fn(async () => ({
           id: "run-1",
@@ -553,6 +554,7 @@ description: Prepare standup notes
     const updateMany = vi.fn(async () => ({ count: 1 }));
     const enqueue = vi.fn(async () => undefined);
     const prisma = {
+      $queryRaw: vi.fn(async () => [{ now: new Date("2026-09-01T12:00:00.000Z") }]),
       run: {
         findUnique: vi.fn(async () => ({
           id: "run-1",

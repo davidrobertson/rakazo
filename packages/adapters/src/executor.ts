@@ -726,7 +726,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
         : null;
 
       const fence = nextFence(run.leaseFence);
-      const now = new Date();
+      const now = await databaseNow(deps.prisma);
+      const recoveringExpiredLease =
+        (run.status === "leased" || run.status === "running") &&
+        Boolean(run.leaseExpiresAt && run.leaseExpiresAt <= now);
       const leased = await deps.prisma.run.updateMany({
         where: {
           id: runId,
@@ -742,12 +745,15 @@ export function createRunExecutor(deps: ExecutorDeps) {
           status: "leased",
           leaseOwner: workerId,
           leaseFence: fence,
-          leaseExpiresAt: new Date(Date.now() + 5 * 60_000),
+          leaseExpiresAt: new Date(now.getTime() + 5 * 60_000),
           error: null,
           checkpoint: null,
         },
       });
       if (leased.count !== 1) return;
+      if (recoveringExpiredLease) {
+        await closeStaleRunAttempts(deps.prisma, runId, fence, now);
+      }
 
       const current = await deps.prisma.run.findUniqueOrThrow({ where: { id: runId } });
       if (
@@ -786,9 +792,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
         await requeueComputerRun(deps, runId, workerId, fence, resumeCheckpoint);
         return;
       }
+      const attemptStartedAt = await databaseNow(deps.prisma);
       const attempt = await deps.prisma.attempt
         .create({
-          data: { runId, fence, status: "running" },
+          data: { runId, fence, status: "running", startedAt: attemptStartedAt },
         })
         .catch(async (error) => {
           await releaseComputerExecutionLease(deps.prisma, computerLease).catch(() => undefined);
@@ -2952,28 +2959,31 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 approvedEffectReplays.assertDrained();
                 flushPendingTools();
                 if (!(await renewRunLease(deps, runId, workerId, fence))) return;
+                await checkpointAndRecordComputerWorkspace(deps, storedComputer, computer, context);
+                terminalCheckpointComplete = true;
+                const completedAt = await databaseNow(deps.prisma).catch(() => null);
                 if (messageSegments.length > 0) {
                   await publishMessage(
                     deps,
                     run,
                     "bot",
                     redactBlocks(
-                      await completedActivityBlocksForAttempts(
-                        messageSegments,
-                        attempt.id,
-                        Date.now(),
-                        () =>
-                          deps.prisma.attempt.findMany({
-                            where: { runId },
-                            select: { id: true, startedAt: true, finishedAt: true },
-                          }),
-                      ),
+                      completedAt
+                        ? await completedActivityBlocksForAttempts(
+                            messageSegments,
+                            attempt.id,
+                            completedAt.getTime(),
+                            () =>
+                              deps.prisma.attempt.findMany({
+                                where: { runId },
+                                select: { id: true, startedAt: true, finishedAt: true },
+                              }),
+                          )
+                        : messageSegments,
                       runSecrets,
                     ),
                   );
                 }
-                await checkpointAndRecordComputerWorkspace(deps, storedComputer, computer, context);
-                terminalCheckpointComplete = true;
                 const stuckText = `I got stuck calling ${humanizeToolName(event.name)} with the same input ${toolCallStreak.count} times in a row without making progress, so I stopped early. Try rephrasing this, or ask me to try a different approach.`;
                 const stopped = await deps.events.finalizeRun({
                   spaceId: run.spaceId,
@@ -3106,6 +3116,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
 
           await checkpointAndRecordComputerWorkspace(deps, storedComputer, computer, context);
           terminalCheckpointComplete = true;
+          const completedAt = await databaseNow(deps.prisma).catch(() => null);
 
           flushPendingTools();
           if (!assembled) {
@@ -3119,16 +3130,18 @@ export function createRunExecutor(deps: ExecutorDeps) {
           const blocks = handedOff
             ? []
             : redactBlocks(
-                await completedActivityBlocksForAttempts(
-                  messageSegments,
-                  attempt.id,
-                  Date.now(),
-                  () =>
-                    deps.prisma.attempt.findMany({
-                      where: { runId },
-                      select: { id: true, startedAt: true, finishedAt: true },
-                    }),
-                ),
+                completedAt
+                  ? await completedActivityBlocksForAttempts(
+                      messageSegments,
+                      attempt.id,
+                      completedAt.getTime(),
+                      () =>
+                        deps.prisma.attempt.findMany({
+                          where: { runId },
+                          select: { id: true, startedAt: true, finishedAt: true },
+                        }),
+                    )
+                  : messageSegments,
                 runSecrets,
               );
           const text = handedOff
@@ -3463,21 +3476,62 @@ export async function completedActivityBlocksForAttempts(
   }
 }
 
-/** Sums persisted executor-active intervals without counting queue or user-wait gaps. */
+/** Returns a timestamp from the database clock shared by every worker. */
+export async function databaseNow(prisma: Pick<PrismaClient, "$queryRaw">): Promise<Date> {
+  const [row] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+  if (!row) throw new Error("database clock unavailable");
+  return row.now;
+}
+
+/** Bounds active attempts owned by workers whose expired lease was reclaimed. */
+export async function closeStaleRunAttempts(
+  prisma: Pick<PrismaClient, "attempt">,
+  runId: string,
+  fence: number,
+  recoveredAt: Date,
+): Promise<void> {
+  await prisma.attempt.updateMany({
+    where: { runId, fence: { lt: fence }, status: "running", finishedAt: null },
+    data: { status: "lease_recovered", finishedAt: recoveredAt },
+  });
+}
+
+/** Unions persisted executor-active intervals without counting queue or user-wait gaps. */
 export function workedDurationMs(
   attempts: Array<{ id: string; startedAt: Date; finishedAt: Date | null }>,
   currentAttemptId: string,
   completedAtMs: number,
 ): number {
-  return Math.round(
-    attempts.reduce((total, attempt) => {
+  const intervals = attempts
+    .flatMap((attempt) => {
       const finishedAtMs =
         attempt.id === currentAttemptId ? completedAtMs : attempt.finishedAt?.getTime();
-      if (finishedAtMs === undefined) return total;
-      const durationMs = finishedAtMs - attempt.startedAt.getTime();
-      return Number.isFinite(durationMs) ? total + Math.max(0, durationMs) : total;
-    }, 0),
-  );
+      const startedAtMs = attempt.startedAt.getTime();
+      if (
+        finishedAtMs === undefined ||
+        !Number.isFinite(startedAtMs) ||
+        !Number.isFinite(finishedAtMs) ||
+        finishedAtMs < startedAtMs
+      ) {
+        return [];
+      }
+      return [[startedAtMs, finishedAtMs] as const];
+    })
+    .sort(([left], [right]) => left - right);
+  if (intervals.length === 0) return 0;
+
+  let total = 0;
+  let [start, end] = intervals[0]!;
+  for (const [nextStart, nextEnd] of intervals.slice(1)) {
+    if (nextStart <= end) {
+      end = Math.max(end, nextEnd);
+      continue;
+    }
+    total += end - start;
+    start = nextStart;
+    end = nextEnd;
+  }
+  return Math.round(total + end - start);
 }
 
 /** User-facing text for completion notifications; empty when only tool/step activity remains. */

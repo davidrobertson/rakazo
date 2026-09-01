@@ -562,6 +562,8 @@
   "When to run": "Ne zaman çalışacak",
   "When to use": "Ne zaman kullanılır",
   "Where should bots run?": "Botlar nerede çalışsın?",
+  "Worked": "Çalışıldı",
+  "Worked for {duration}": "{duration} boyunca çalışıldı",
   "Working…": "Çalışıyor…",
   "Space default": "Alan varsayılanı",
   "You": "Sen",
