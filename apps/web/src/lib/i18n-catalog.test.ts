@@ -35,9 +35,13 @@ describe("lingui catalogs", () => {
       );
       expect(catalog).toContain('msgid "Worked"');
       expect(catalog).toContain('msgid "Worked for {duration}"');
+      expect(catalog).toContain('msgid "Completed"');
+      expect(catalog).toContain('msgid "In progress"');
       if (locale !== "en") {
         expect(catalog).not.toContain('msgid "Worked"\nmsgstr ""');
         expect(catalog).not.toContain('msgid "Worked for {duration}"\nmsgstr ""');
+        expect(catalog).not.toContain('msgid "Completed"\nmsgstr ""');
+        expect(catalog).not.toContain('msgid "In progress"\nmsgstr ""');
       }
     }
   });

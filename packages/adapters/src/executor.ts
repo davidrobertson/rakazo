@@ -3276,14 +3276,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
           ),
         });
         if (released.count === 1) {
-          await deps.prisma.attempt.update({
-            where: { id: attempt.id },
-            data: {
-              status: "setup_failed",
-              error: "Run setup failed; retrying",
-              finishedAt: new Date(),
-            },
-          });
+          await finishRunningAttempt(
+            deps.prisma,
+            attempt.id,
+            "setup_failed",
+            "Run setup failed; retrying",
+          );
           if (computerBusy) {
             await deps.jobs.enqueue({
               ...runContinueJob(runId),
@@ -3303,12 +3301,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           }
           await releaseComputerExecutionLease(deps.prisma, computerLease).catch(() => undefined);
         }
-        await deps.prisma.attempt
-          .updateMany({
-            where: { id: attempt.id, status: "running" },
-            data: { status: "interrupted", finishedAt: new Date() },
-          })
-          .catch(() => undefined);
+        await finishRunningAttempt(deps.prisma, attempt.id, "interrupted").catch(() => undefined);
       }
     },
   };
@@ -3372,9 +3365,10 @@ async function renewRunLease(
   workerId: string,
   fence: number,
 ): Promise<boolean> {
+  const now = await databaseNow(deps.prisma);
   const renewed = await deps.prisma.run.updateMany({
     where: { id: runId, status: "running", leaseOwner: workerId, leaseFence: fence },
-    data: { leaseExpiresAt: new Date(Date.now() + 5 * 60_000) },
+    data: { leaseExpiresAt: new Date(now.getTime() + 5 * 60_000) },
   });
   return renewed.count === 1;
 }
@@ -3481,6 +3475,20 @@ export async function databaseNow(prisma: Pick<PrismaClient, "$queryRaw">): Prom
   const [row] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
   if (!row) throw new Error("database clock unavailable");
   return row.now;
+}
+
+/** Closes one active attempt using the database clock shared by every worker. */
+export async function finishRunningAttempt(
+  prisma: Pick<PrismaClient, "$queryRaw" | "attempt">,
+  attemptId: string,
+  status: string,
+  error?: string,
+): Promise<void> {
+  const finishedAt = await databaseNow(prisma);
+  await prisma.attempt.updateMany({
+    where: { id: attemptId, status: "running" },
+    data: { status, error, finishedAt },
+  });
 }
 
 /** Bounds active attempts owned by workers whose expired lease was reclaimed. */

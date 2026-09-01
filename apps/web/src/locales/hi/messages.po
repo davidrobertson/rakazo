@@ -734,7 +734,7 @@ msgstr "पूर्ण"
 #: src/pages/Shell.tsx:4959
 #: src/pages/Shell.tsx:5070
 msgid "Completed"
-msgstr ""
+msgstr "पूरा हुआ"
 
 #: src/pages/Shell.tsx:5296
 #: src/pages/Shell.tsx:5324
@@ -1580,7 +1580,7 @@ msgstr "OpenAPI JSON इम्पोर्ट करें"
 #: src/pages/Shell.tsx:4960
 #: src/pages/Shell.tsx:5071
 msgid "In progress"
-msgstr ""
+msgstr "प्रगति में"
 
 #: src/pages/Shell.tsx:5652
 msgid "Inherit default"

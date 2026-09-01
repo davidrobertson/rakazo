@@ -7,6 +7,7 @@ import {
   completionMessageSegments,
   completionNotificationBody,
   databaseNow,
+  finishRunningAttempt,
   subagentMarksUnread,
   workedDurationMs,
 } from "./executor.js";
@@ -154,6 +155,25 @@ describe("databaseNow", () => {
 
     await expect(databaseNow({ $queryRaw: queryRaw } as never)).resolves.toEqual(now);
     expect(queryRaw).toHaveBeenCalledOnce();
+  });
+});
+
+describe("finishRunningAttempt", () => {
+  it("uses the database clock for interrupted and failed attempt boundaries", async () => {
+    const finishedAt = new Date("2026-09-01T12:00:00.000Z");
+    const queryRaw = vi.fn().mockResolvedValue([{ now: finishedAt }]);
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+
+    await finishRunningAttempt(
+      { $queryRaw: queryRaw, attempt: { updateMany } } as never,
+      "attempt-1",
+      "interrupted",
+    );
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: "attempt-1", status: "running" },
+      data: { status: "interrupted", error: undefined, finishedAt },
+    });
   });
 });
 

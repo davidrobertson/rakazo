@@ -734,7 +734,7 @@ msgstr "Concluir"
 #: src/pages/Shell.tsx:4959
 #: src/pages/Shell.tsx:5070
 msgid "Completed"
-msgstr ""
+msgstr "Concluído"
 
 #: src/pages/Shell.tsx:5296
 #: src/pages/Shell.tsx:5324
@@ -1580,7 +1580,7 @@ msgstr "Importar OpenAPI JSON"
 #: src/pages/Shell.tsx:4960
 #: src/pages/Shell.tsx:5071
 msgid "In progress"
-msgstr ""
+msgstr "Em andamento"
 
 #: src/pages/Shell.tsx:5652
 msgid "Inherit default"
