@@ -16,11 +16,12 @@ export function ToolSteps({
         return (
           <div key={index} className="flex min-w-0 items-center gap-2">
             <span
-              className="text-[13px]"
-              style={{
-                color: isCurrent ? "#F5A03C" : "#4ECB71",
-                animation: isCurrent ? "rkPulse 1.2s ease-in-out infinite" : undefined,
-              }}
+              className={`text-[13px] ${
+                isCurrent
+                  ? "animate-[rkPulse_1.2s_ease-in-out_infinite] motion-reduce:animate-none"
+                  : ""
+              }`}
+              style={{ color: isCurrent ? "#F5A03C" : "#4ECB71" }}
             >
               {isCurrent ? "◷" : "✓"}
             </span>

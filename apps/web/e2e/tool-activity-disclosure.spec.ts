@@ -74,5 +74,12 @@ test("tool activity stays collapsed until disclosed", async ({ page }, testInfo)
   await expect(summary).toHaveText("Worked for 1m 43s");
   await expect(summary).toBeFocused();
 
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/e2e/fixtures/tool-activity-disclosure.html?live=1");
+  await page.getByTestId("tool-activity").locator("summary").click();
+  const activeIcon = page.getByTestId("tool-rows").getByText("◷");
+  await expect(activeIcon).toBeVisible();
+  expect(await activeIcon.evaluate((icon) => getComputedStyle(icon).animationName)).toBe("none");
+
   expect(browserErrors).toEqual([]);
 });

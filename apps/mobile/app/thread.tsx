@@ -2448,6 +2448,8 @@ function ExpandableToolBlock({
           flexDirection: "row",
           alignItems: "center",
           gap: 5,
+          justifyContent: "center",
+          minHeight: 44,
           paddingVertical: 2,
         }}
       >
