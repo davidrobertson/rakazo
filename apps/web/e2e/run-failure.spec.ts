@@ -50,8 +50,12 @@ test("a failed run is visible once without returning after reload", async ({ pag
   await expect(error).toBeVisible({ timeout: 30_000 });
   await expect(error).toContainText("Scripted run failure");
 
-  await page.getByTestId("composer-error-dismiss").click();
+  const dismissError = page.getByTestId("composer-error-dismiss");
+  await dismissError.focus();
+  await expect(dismissError).toBeFocused();
+  await dismissError.press("Enter");
   await expect(error).toBeHidden();
+  await expect(page.getByPlaceholder(/^Message /)).toBeFocused();
 });
 
 test("a covered run error is not remembered until it is presented", async ({ page }, testInfo) => {

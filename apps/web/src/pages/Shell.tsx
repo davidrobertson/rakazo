@@ -4423,7 +4423,10 @@ const Composer = memo(function Composer({
             type="button"
             aria-label={t`Dismiss error`}
             data-testid="composer-error-dismiss"
-            onClick={onDismissError}
+            onClick={() => {
+              onDismissError();
+              window.requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
             className="shrink-0 text-[#F1A8A8] hover:text-[#ECECEE]"
           >
             <X size={13} strokeWidth={2} />
