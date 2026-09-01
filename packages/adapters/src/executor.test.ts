@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRunExecutor,
   loadCurrentTurnImages,
+  missingTurnImagesInstruction,
   runNotificationsEnabled,
   selectBuiltinToolsForRun,
   settleSteeringAttachmentLoads,
@@ -112,6 +113,24 @@ describe("steering attachment hydration", () => {
       Promise.resolve([]),
     );
     expect(withoutExpectedImages.unavailableInstruction).toBe("");
+  });
+
+  it("warns when an ordinary turn expects more images than were loaded", () => {
+    const blocks: MessageBlock[] = [
+      { kind: "image", artifactId: "image-1", name: "one.png", mimeType: "image/png" },
+      { kind: "image", artifactId: "image-2", name: "two.png", mimeType: "image/png" },
+    ];
+    expect(missingTurnImagesInstruction(blocks, [{ name: "one.png" } as never])).toContain(
+      "do not guess its contents",
+    );
+    expect(
+      missingTurnImagesInstruction(blocks, [
+        { name: "one.png" } as never,
+        { name: "two.png" } as never,
+      ]),
+    ).toBe("");
+    expect(missingTurnImagesInstruction(blocks, undefined)).toContain("do not guess its contents");
+    expect(missingTurnImagesInstruction(undefined, undefined)).toBe("");
   });
 });
 

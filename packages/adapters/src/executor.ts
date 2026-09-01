@@ -259,8 +259,9 @@ const READ_ONLY_AGENT_TOOLS = new Set([
   "web_fetch",
 ]);
 const MAX_MODEL_FILE_BYTES = 250_000;
-const STEERING_ATTACHMENT_UNAVAILABLE =
-  "An attachment in this steering message could not be loaded. Tell the user the attachment was unavailable and do not guess its contents.";
+const TURN_ATTACHMENT_UNAVAILABLE =
+  "An attachment in this message could not be loaded. Tell the user the attachment was unavailable and do not guess its contents.";
+const STEERING_ATTACHMENT_UNAVAILABLE = TURN_ATTACHMENT_UNAVAILABLE;
 const BUILTIN_AGENT_TOOL_NAMES = new Set(builtinAgentTools.map((tool) => tool.name));
 
 const SHELL_INTERPRETER_NAMES = /^(?:bash|sh|dash|zsh|ksh|fish)$/;
@@ -2691,8 +2692,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 )}\nWhen the user asks to run a taught skill by name, follow that skill's playbook exactly. The full playbook is included in the user task when they invoke it.`
             : undefined;
         const agentSkillsLine = formatSkillsCatalogInstruction(agentSkills);
+        const missingImagesInstruction = missingTurnImagesInstruction(
+          turnBlocks,
+          currentTurnImages,
+        );
         const taskPrompt = expandSkillReferencesInPrompt(
-          [task.prompt, attachedFilesPrompt].filter(Boolean).join("\n\n"),
+          [task.prompt, attachedFilesPrompt, missingImagesInstruction].filter(Boolean).join("\n\n"),
           agentSkills,
         );
         const invokedSkill = savedSkills.find((skill) =>
@@ -3491,6 +3496,15 @@ export function completionNotificationBody(assembled: string, blocks: MessageBlo
 
 export function completionMarksUnread(trigger: string, text: string): boolean {
   return trigger !== "routine" || Boolean(text);
+}
+
+export function missingTurnImagesInstruction(
+  blocks: MessageBlock[] | undefined,
+  images: { length: number } | undefined,
+): string {
+  const expected = blocks?.filter((block) => block.kind === "image").length ?? 0;
+  const loaded = images?.length ?? 0;
+  return expected > 0 && loaded < expected ? TURN_ATTACHMENT_UNAVAILABLE : "";
 }
 
 export async function settleSteeringAttachmentLoads<TImage, TFile>(
