@@ -5064,7 +5064,11 @@ const MessageView = memo(function MessageView({
                 className="max-w-[74%] space-y-1.5 rounded-[20px] bg-[#1A1A1D] px-[18px] py-3"
                 dir="ltr"
               >
-                <ToolActivityDisclosure live={isLive} label={toolActivityLabel(block.durationMs)}>
+                <ToolActivityDisclosure
+                  focusKey={message.runId ? `${message.runId}:${i}` : undefined}
+                  live={isLive}
+                  label={toolActivityLabel(block.durationMs)}
+                >
                   <ToolSteps
                     steps={block.steps}
                     currentIndex={isLive ? block.steps.length - 1 : undefined}

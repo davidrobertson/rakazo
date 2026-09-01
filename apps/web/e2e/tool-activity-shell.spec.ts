@@ -75,11 +75,31 @@ test("production chat renders persisted tool duration in every disclosure state"
   await expect(page.getByPlaceholder(/Message/)).toBeVisible();
 
   let mode: PresentationMode = "completed";
+  let nonNarration = false;
   const present = async (route: Route) => {
-    await presentThreadMessage(route, runId, durableMessageId, mode);
+    await presentThreadMessage(route, runId, durableMessageId, mode, nonNarration);
   };
   await page.route("**/rpc/threads/get", present);
   await page.route("**/rpc/bootstrap", present);
+
+  mode = "live";
+  nonNarration = true;
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const liveMessage = page.locator(`[data-message-id="progress:${runId}"]`);
+  const liveSummary = liveMessage.getByTestId("tool-activity").locator("summary");
+  await expect(liveSummary).toHaveText("Working…");
+  await liveSummary.focus();
+  await page.keyboard.press("Enter");
+  await expect(liveMessage.getByTestId("tool-activity")).toHaveAttribute("open", "");
+
+  mode = "completed";
+  await rpc(page, "threads/send", { botId, text: "Trigger reconciliation." });
+  const completedMessage = page.locator(`[data-message-id="${durableMessageId}"]`);
+  const remountedSummary = completedMessage.getByTestId("tool-activity").locator("summary");
+  await expect(remountedSummary).toHaveText(`Worked for ${duration}`, { timeout: 60_000 });
+  await expect(completedMessage.getByTestId("tool-activity")).not.toHaveAttribute("open", "");
+  await expect(remountedSummary).toBeFocused();
+  nonNarration = false;
 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
@@ -130,10 +150,11 @@ async function presentThreadMessage(
   runId: string,
   durableMessageId: string,
   mode: PresentationMode,
+  nonNarration: boolean,
 ) {
   const response = await route.fetch();
   const payload = (await response.json()) as unknown;
-  mutatePresentation(payload, runId, durableMessageId, mode);
+  mutatePresentation(payload, runId, durableMessageId, mode, nonNarration);
   await route.fulfill({ response, json: payload });
 }
 
@@ -142,9 +163,12 @@ function mutatePresentation(
   runId: string,
   durableMessageId: string,
   mode: PresentationMode,
+  nonNarration: boolean,
 ) {
   if (Array.isArray(value)) {
-    for (const child of value) mutatePresentation(child, runId, durableMessageId, mode);
+    for (const child of value) {
+      mutatePresentation(child, runId, durableMessageId, mode, nonNarration);
+    }
     return;
   }
   if (!value || typeof value !== "object") return;
@@ -158,6 +182,9 @@ function mutatePresentation(
     )
   ) {
     record.id = mode === "live" ? `progress:${runId}` : durableMessageId;
+    if (nonNarration) {
+      record.blocks.unshift({ kind: "meta", text: "Tool activity" });
+    }
     if (mode === "legacy") {
       for (const block of record.blocks) {
         if (block && typeof block === "object" && (block as { kind?: string }).kind === "steps") {
@@ -167,6 +194,6 @@ function mutatePresentation(
     }
   }
   for (const child of Object.values(record)) {
-    mutatePresentation(child, runId, durableMessageId, mode);
+    mutatePresentation(child, runId, durableMessageId, mode, nonNarration);
   }
 }
