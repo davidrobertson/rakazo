@@ -100,6 +100,8 @@ test("a covered run error is not remembered until it is presented", async ({ pag
   await expect(page.getByTestId("shell-root")).toHaveAttribute("data-ready", "true");
   await expect(error).toBeHidden();
 
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await expect(page.locator("main")).toHaveJSProperty("inert", true);
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.locator("main")).not.toHaveAttribute("aria-hidden", "true");
   await expect(page.locator("main")).toHaveJSProperty("inert", false);
