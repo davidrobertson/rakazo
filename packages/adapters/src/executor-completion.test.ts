@@ -55,6 +55,15 @@ describe("completedActivityBlocksForAttempts", () => {
       { kind: "steps", steps: [{ label: "Shell", count: 6 }], durationMs: 15_000 },
     ]);
   });
+
+  it("keeps completed activity when attempt timing cannot be loaded", async () => {
+    const blocks = [{ kind: "steps" as const, steps: [{ label: "Shell", count: 1 }] }];
+    await expect(
+      completedActivityBlocksForAttempts(blocks, "current", 105_000, async () => {
+        throw new Error("database unavailable");
+      }),
+    ).resolves.toBe(blocks);
+  });
 });
 
 describe("workedDurationMs", () => {

@@ -3453,10 +3453,14 @@ export async function completedActivityBlocksForAttempts(
   loadAttempts: () => Promise<Array<{ id: string; startedAt: Date; finishedAt: Date | null }>>,
 ): Promise<MessageBlock[]> {
   if (!blocks.some((block) => block.kind === "steps")) return blocks;
-  return completedActivityBlocks(
-    blocks,
-    workedDurationMs(await loadAttempts(), currentAttemptId, completedAtMs),
-  );
+  try {
+    return completedActivityBlocks(
+      blocks,
+      workedDurationMs(await loadAttempts(), currentAttemptId, completedAtMs),
+    );
+  } catch {
+    return blocks;
+  }
 }
 
 /** Sums persisted executor-active intervals without counting queue or user-wait gaps. */
