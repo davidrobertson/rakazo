@@ -109,6 +109,22 @@ describe("seen run error storage", () => {
     expect(readSeenRunErrorIds(currentTab)).toEqual(new Set(["run-current", "run-stale"]));
   });
 
+  it("does not refresh or prune an ID that is already recorded", () => {
+    const values = new Map<string, string>();
+    for (let index = 0; index < SEEN_RUN_ERROR_LIMIT; index += 1) {
+      values.set(`rakazo:seen-run-error:run-${index}`, String(index + 1));
+    }
+    const currentStorage = storage(values);
+    const setItem = vi.fn(currentStorage.setItem);
+    const removeItem = vi.fn(currentStorage.removeItem);
+
+    rememberSeenRunErrorId("run-0", { ...currentStorage, setItem, removeItem });
+
+    expect(setItem).not.toHaveBeenCalled();
+    expect(removeItem).not.toHaveBeenCalled();
+    expect(readSeenRunErrorIds(currentStorage)).toHaveLength(SEEN_RUN_ERROR_LIMIT);
+  });
+
   it("retains the ID just seen when stored timestamps tie", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1);
     const localStorage = storage();

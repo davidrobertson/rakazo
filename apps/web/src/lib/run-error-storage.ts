@@ -36,6 +36,7 @@ export function rememberSeenRunErrorId(
   if (!storage) return;
   try {
     const currentKey = `${SEEN_RUN_ERROR_STORAGE_KEY_PREFIX}${id}`;
+    if (storage.getItem(currentKey) !== null) return;
     const entries: Array<{ key: string; seenAt: number }> = [];
     let newestSeenAt = 0;
     for (let index = 0; index < storage.length; index += 1) {
@@ -49,9 +50,7 @@ export function rememberSeenRunErrorId(
     }
     const seenAt = Math.max(Date.now(), newestSeenAt + 1);
     storage.setItem(currentKey, String(seenAt));
-    const currentEntry = entries.find((entry) => entry.key === currentKey);
-    if (currentEntry) currentEntry.seenAt = seenAt;
-    else entries.push({ key: currentKey, seenAt });
+    entries.push({ key: currentKey, seenAt });
     entries.sort((left, right) => right.seenAt - left.seenAt || right.key.localeCompare(left.key));
     for (const { key } of entries.slice(SEEN_RUN_ERROR_LIMIT)) storage.removeItem(key);
   } catch {
