@@ -731,9 +731,6 @@ export function createRunExecutor(deps: ExecutorDeps) {
 
       const fence = nextFence(run.leaseFence);
       const now = await databaseNow(deps.prisma);
-      const recoveringExpiredLease =
-        (run.status === "leased" || run.status === "running") &&
-        Boolean(run.leaseExpiresAt && run.leaseExpiresAt <= now);
       const leased = await deps.prisma.run.updateMany({
         where: {
           id: runId,
@@ -771,12 +768,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
         data: { status: "running", startedAt: runStartedAt },
       });
       if (started.count !== 1) return;
-      if (recoveringExpiredLease) {
-        await closeStaleRunAttempts(deps.prisma, runId, fence, now).catch(async (error) => {
-          await requeueComputerRun(deps, runId, workerId, fence, resumeCheckpoint);
-          throw error;
-        });
-      }
+      await closeStaleRunAttempts(deps.prisma, runId, fence, now).catch(async (error) => {
+        await requeueComputerRun(deps, runId, workerId, fence, resumeCheckpoint);
+        throw error;
+      });
       const leaseTarget = await deps.prisma.bot.findUniqueOrThrow({
         where: { id: run.botId },
         select: { computerId: true, computerSwitching: true },

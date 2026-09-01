@@ -566,6 +566,7 @@ description: Prepare standup notes
         findUniqueOrThrow: vi.fn(async () => ({ status: "leased", startedAt: null })),
         updateMany,
       },
+      attempt: { updateMany: vi.fn(async () => ({ count: 0 })) },
       bot: {
         findUniqueOrThrow: vi.fn(async () => ({
           computerId: "computer-1",
@@ -620,7 +621,7 @@ description: Prepare standup notes
       computer: {
         findUniqueOrThrow: vi.fn(async () => ({ scope: "personal", state: "running" })),
       },
-      attempt: { create: vi.fn() },
+      attempt: { create: vi.fn(), updateMany: vi.fn(async () => ({ count: 0 })) },
     } as unknown as PrismaClient;
     const executor = createRunExecutor({ prisma, jobs: { enqueue } } as unknown as Parameters<
       typeof createRunExecutor
@@ -634,41 +635,55 @@ description: Prepare standup notes
     expect(enqueue).toHaveBeenCalledOnce();
   });
 
-  it("requeues a recovered run when stale-attempt closure fails", async () => {
+  it("retries stale-attempt closure after requeueing a recovered run", async () => {
     const recoveryError = new Error("attempt update unavailable");
+    const stopAfterRecovery = new Error("stop after recovery");
     const now = new Date("2026-09-01T12:00:00.000Z");
     const updateMany = vi.fn(async () => ({ count: 1 }));
     const enqueue = vi.fn(async () => undefined);
+    const closeAttempts = vi
+      .fn()
+      .mockRejectedValueOnce(recoveryError)
+      .mockResolvedValueOnce({ count: 1 });
     const prisma = {
       $queryRaw: vi.fn(async () => [{ now }]),
       run: {
-        findUnique: vi.fn(async () => ({
-          id: "run-1",
-          botId: "bot-1",
-          status: "running",
-          checkpoint: null,
-          leaseFence: 1,
-          leaseExpiresAt: new Date(now.getTime() - 1),
-        })),
+        findUnique: vi
+          .fn()
+          .mockResolvedValueOnce({
+            id: "run-1",
+            botId: "bot-1",
+            status: "running",
+            checkpoint: null,
+            leaseFence: 1,
+            leaseExpiresAt: new Date(now.getTime() - 1),
+          })
+          .mockResolvedValueOnce({
+            id: "run-1",
+            botId: "bot-1",
+            status: "queued",
+            checkpoint: null,
+            leaseFence: 2,
+            leaseExpiresAt: null,
+          }),
         findUniqueOrThrow: vi.fn(async () => ({ status: "leased", startedAt: now })),
         updateMany,
       },
-      attempt: {
-        updateMany: vi.fn(async () => {
-          throw recoveryError;
-        }),
-      },
+      attempt: { updateMany: closeAttempts },
+      bot: { findUniqueOrThrow: vi.fn(async () => Promise.reject(stopAfterRecovery)) },
     } as unknown as PrismaClient;
     const executor = createRunExecutor({ prisma, jobs: { enqueue } } as unknown as Parameters<
       typeof createRunExecutor
     >[0]);
 
     await expect(executor.continueRun("run-1", "worker-1")).rejects.toBe(recoveryError);
-
     expect(updateMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "queued" }) }),
     );
     expect(enqueue).toHaveBeenCalledOnce();
+
+    await expect(executor.continueRun("run-1", "worker-2")).rejects.toBe(stopAfterRecovery);
+    expect(closeAttempts).toHaveBeenCalledTimes(2);
   });
 
   it("resolves a per-bot model override with that provider’s credential", async () => {
