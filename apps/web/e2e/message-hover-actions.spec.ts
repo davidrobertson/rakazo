@@ -7,6 +7,28 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
   await completeOnboarding(page);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
 
+  const transcript = page.getByTestId("transcript");
+  const botRow = transcript.locator(`[data-message-id]`).first();
+  await expect(botRow).toBeVisible();
+  await botRow.hover();
+  const botToolbar = botRow.getByTestId("message-hover-actions");
+  const botTime = botRow.locator("time");
+  await expect(botToolbar).toBeVisible();
+  await expect
+    .poll(async () => {
+      const toolbarBox = await botToolbar.boundingBox();
+      const timeBox = await botTime.boundingBox();
+      if (!toolbarBox || !timeBox) return null;
+      return toolbarBox.x + toolbarBox.width <= timeBox.x;
+    })
+    .toBe(true);
+  await botToolbar.evaluate((el) => {
+    const node = el as HTMLElement;
+    node.style.opacity = "1";
+    node.style.pointerEvents = "auto";
+  });
+  await captureScreenshot(page, testInfo, "message-bot-actions-desktop");
+
   const parentText = `hover-parent-${stamp}`;
   const replyText = `hover-reply-${stamp}`;
   const composer = page.getByRole("combobox", { name: /^Message/ });
@@ -14,7 +36,6 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
   await composer.fill(parentText);
   await composer.press("Enter");
 
-  const transcript = page.getByTestId("transcript");
   const parentRow = transcript.locator(`[data-message-id]`).filter({ hasText: parentText }).first();
   await expect(parentRow).toBeVisible({ timeout: 20_000 });
 
@@ -103,6 +124,14 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
 
   await parentPreview.click();
   await expect(parentRow).toBeInViewport();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await botRow.scrollIntoViewIfNeeded();
+  await botRow.hover();
+  await captureScreenshot(page, testInfo, "message-bot-actions-mobile");
+  await parentRow.scrollIntoViewIfNeeded();
+  await parentRow.hover();
+  await captureScreenshot(page, testInfo, "message-user-actions-mobile");
 });
 
 test("reply preview jumps to parent outside the loaded page", async ({ page }) => {

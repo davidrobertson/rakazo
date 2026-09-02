@@ -9,13 +9,13 @@ describe("MessageHoverMetadata", () => {
     i18n.activate("en");
   });
 
-  it("shows the message's creation time beside its actions below the message", () => {
+  it("shows user metadata below the message with the time before the actions", () => {
     i18n.load("en", {});
     i18n.activate("en");
 
     const createdAt = new Date(2026, 7, 21, 18, 14).toISOString();
     const html = renderToStaticMarkup(
-      <MessageHoverMetadata align="end" createdAt={createdAt}>
+      <MessageHoverMetadata actionsFirst={false} align="end" createdAt={createdAt}>
         <div data-testid="message-actions-pill" />
       </MessageHoverMetadata>,
     );
@@ -31,18 +31,19 @@ describe("MessageHoverMetadata", () => {
     expect(html).not.toContain("top-0");
   });
 
-  it("aligns bot metadata with the start of the message", () => {
+  it("aligns bot metadata with the start and puts actions before the time", () => {
     i18n.load("en", {});
     i18n.activate("en");
 
     const html = renderToStaticMarkup(
-      <MessageHoverMetadata align="start" createdAt={new Date().toISOString()}>
+      <MessageHoverMetadata actionsFirst align="start" createdAt={new Date().toISOString()}>
         <div data-testid="message-actions-pill" />
       </MessageHoverMetadata>,
     );
 
     expect(html).toContain("start-0");
     expect(html).not.toContain("end-0");
+    expect(html.indexOf('data-testid="message-actions-pill"')).toBeLessThan(html.indexOf("<time"));
   });
 
   it("formats the displayed time with the active i18n locale", () => {
@@ -51,7 +52,7 @@ describe("MessageHoverMetadata", () => {
 
     const createdAt = new Date(2026, 7, 21, 18, 14).toISOString();
     const html = renderToStaticMarkup(
-      <MessageHoverMetadata align="end" createdAt={createdAt}>
+      <MessageHoverMetadata actionsFirst={false} align="end" createdAt={createdAt}>
         <div data-testid="message-actions-pill" />
       </MessageHoverMetadata>,
     );

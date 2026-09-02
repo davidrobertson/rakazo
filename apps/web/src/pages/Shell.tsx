@@ -4860,6 +4860,7 @@ function MessageHoverActions({
 
   return (
     <MessageHoverMetadata
+      actionsFirst={message.role === "bot"}
       align={message.role === "bot" ? "start" : "end"}
       createdAt={message.createdAt}
     >
