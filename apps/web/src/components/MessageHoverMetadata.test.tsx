@@ -9,13 +9,13 @@ describe("MessageHoverMetadata", () => {
     i18n.activate("en");
   });
 
-  it("shows the message's creation time beside its actions on hover or focus", () => {
+  it("shows the message's creation time beside its actions below the message", () => {
     i18n.load("en", {});
     i18n.activate("en");
 
     const createdAt = new Date(2026, 7, 21, 18, 14).toISOString();
     const html = renderToStaticMarkup(
-      <MessageHoverMetadata createdAt={createdAt}>
+      <MessageHoverMetadata align="end" createdAt={createdAt}>
         <div data-testid="message-actions-pill" />
       </MessageHoverMetadata>,
     );
@@ -26,6 +26,23 @@ describe("MessageHoverMetadata", () => {
     expect(html.indexOf("<time")).toBeLessThan(html.indexOf('data-testid="message-actions-pill"'));
     expect(html).toContain("group-hover/message:opacity-100");
     expect(html).toContain("focus-within:opacity-100");
+    expect(html).toContain("bottom-0");
+    expect(html).toContain("end-0");
+    expect(html).not.toContain("top-0");
+  });
+
+  it("aligns bot metadata with the start of the message", () => {
+    i18n.load("en", {});
+    i18n.activate("en");
+
+    const html = renderToStaticMarkup(
+      <MessageHoverMetadata align="start" createdAt={new Date().toISOString()}>
+        <div data-testid="message-actions-pill" />
+      </MessageHoverMetadata>,
+    );
+
+    expect(html).toContain("start-0");
+    expect(html).not.toContain("end-0");
   });
 
   it("formats the displayed time with the active i18n locale", () => {
@@ -34,7 +51,7 @@ describe("MessageHoverMetadata", () => {
 
     const createdAt = new Date(2026, 7, 21, 18, 14).toISOString();
     const html = renderToStaticMarkup(
-      <MessageHoverMetadata createdAt={createdAt}>
+      <MessageHoverMetadata align="end" createdAt={createdAt}>
         <div data-testid="message-actions-pill" />
       </MessageHoverMetadata>,
     );

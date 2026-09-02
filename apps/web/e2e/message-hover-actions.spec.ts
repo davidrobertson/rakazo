@@ -26,16 +26,20 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
   const thumbsUp = toolbar.getByRole("button", { name: "Add thumbs-up" });
   await expect(thumbsUp).toBeVisible();
 
-  // Pill must float above the bubble text, not cover the first line.
+  // Pill must sit below the bubble text and align with its right edge.
   const bubble = parentRow.locator("div").filter({ hasText: parentText }).last();
   await expect
     .poll(async () => {
       const toolbarBox = await toolbar.boundingBox();
       const bubbleBox = await bubble.boundingBox();
       if (!toolbarBox || !bubbleBox) return null;
-      return toolbarBox.y + toolbarBox.height <= bubbleBox.y + 1;
+      return {
+        below: toolbarBox.y >= bubbleBox.y + bubbleBox.height - 1,
+        rightAligned:
+          Math.abs(toolbarBox.x + toolbarBox.width - (bubbleBox.x + bubbleBox.width)) <= 1,
+      };
     })
-    .toBe(true);
+    .toEqual({ below: true, rightAligned: true });
 
   // Keep the pill visible for the artifact (full-page shots can drop :hover).
   await toolbar.evaluate((el) => {
@@ -47,14 +51,16 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
   const bubbleBox = await bubble.boundingBox();
   if (!toolbarBox || !bubbleBox) throw new Error("missing hover toolbar geometry");
   const pad = 16;
+  const top = Math.min(toolbarBox.y, bubbleBox.y);
   const clip = {
     x: Math.max(0, Math.min(toolbarBox.x, bubbleBox.x) - pad),
-    y: Math.max(0, toolbarBox.y - pad),
+    y: Math.max(0, top - pad),
     width:
       Math.max(toolbarBox.x + toolbarBox.width, bubbleBox.x + bubbleBox.width) -
       Math.min(toolbarBox.x, bubbleBox.x) +
       pad * 2,
-    height: bubbleBox.y + bubbleBox.height - toolbarBox.y + pad * 2,
+    height:
+      Math.max(toolbarBox.y + toolbarBox.height, bubbleBox.y + bubbleBox.height) - top + pad * 2,
   };
   const hoverPath = testInfo.outputPath("message-hover-toolbar.png");
   await page.screenshot({

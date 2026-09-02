@@ -4040,7 +4040,7 @@ const Transcript = memo(function Transcript({
             <div
               key={message.id}
               data-message-id={message.id}
-              className={peerReceipt ? "relative py-0.5" : "group/message relative pt-9 hover:z-20"}
+              className={peerReceipt ? "relative py-0.5" : "group/message relative pb-9 hover:z-20"}
             >
               {peerReceipt ? null : (
                 <MessageHoverActions message={message} onReply={onReply} onReact={onReact} />
@@ -4859,7 +4859,10 @@ function MessageHoverActions({
   }
 
   return (
-    <MessageHoverMetadata createdAt={message.createdAt}>
+    <MessageHoverMetadata
+      align={message.role === "bot" ? "start" : "end"}
+      createdAt={message.createdAt}
+    >
       <div
         data-testid="message-hover-actions"
         className="flex items-center gap-0.5 rounded-full bg-[#1C1C1F] p-0.5 shadow-[0_1px_4px_rgba(0,0,0,0.45)]"
