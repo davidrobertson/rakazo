@@ -28,6 +28,7 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
     node.style.pointerEvents = "auto";
   });
   await captureScreenshot(page, testInfo, "message-bot-actions-desktop");
+  await botToolbar.evaluate((el) => el.removeAttribute("style"));
 
   const parentText = `hover-parent-${stamp}`;
   const replyText = `hover-reply-${stamp}`;
@@ -91,6 +92,7 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
     path: hoverPath,
   });
   await testInfo.attach("message-hover-toolbar", { contentType: "image/png", path: hoverPath });
+  await toolbar.evaluate((el) => el.removeAttribute("style"));
 
   await thumbsUp.click();
   const reactionChip = parentRow
@@ -128,10 +130,14 @@ test("message hover shows Reply and Copy; reply links to parent", async ({ page 
   await page.setViewportSize({ width: 390, height: 844 });
   await botRow.scrollIntoViewIfNeeded();
   await botRow.hover();
+  await botToolbar.evaluate((el) => el.setAttribute("style", "opacity:1;pointer-events:auto"));
   await captureScreenshot(page, testInfo, "message-bot-actions-mobile");
+  await botToolbar.evaluate((el) => el.removeAttribute("style"));
   await parentRow.scrollIntoViewIfNeeded();
   await parentRow.hover();
+  await toolbar.evaluate((el) => el.setAttribute("style", "opacity:1;pointer-events:auto"));
   await captureScreenshot(page, testInfo, "message-user-actions-mobile");
+  await toolbar.evaluate((el) => el.removeAttribute("style"));
 });
 
 test("reply preview jumps to parent outside the loaded page", async ({ page }) => {
