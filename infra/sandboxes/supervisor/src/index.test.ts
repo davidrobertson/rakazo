@@ -30,6 +30,7 @@ import {
   type ScreenAssignment,
   sandboxCommandTimedOut,
   sandboxTimeoutCommand,
+  screenReleaseStopCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
   teardownReleasedScreen,
@@ -489,7 +490,7 @@ describe("sandbox supervisor input containment", () => {
       events.push("release");
     });
 
-    await Promise.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(events).toEqual(["ensure:start"]);
     releaseFirst();
     await Promise.all([first, release]);
@@ -605,6 +606,14 @@ describe("sandbox supervisor input containment", () => {
     expect(releaseAssignedScreen(assigned, "writer", "run-2:2")).toBe(0);
   });
 
+  it("does not let a closing viewer release a screen claimed by a run", () => {
+    const assigned = new Map<string, ScreenAssignment>();
+    expect(nextScreenIndex(assigned, "writer", "screen-view-writer:0")).toBe(0);
+    expect(nextScreenIndex(assigned, "writer", "run-1:1")).toBe(0);
+    expect(releaseAssignedScreen(assigned, "writer", "screen-view-writer:0")).toBeUndefined();
+    expect(releaseAssignedScreen(assigned, "writer", "run-1:1")).toBe(0);
+  });
+
   it("stops the released bot's browser without tearing down the primary desktop", () => {
     const primary = stopExtraScreenCommand(0, "writer");
     expect(primary).toContain(`--user-data-dir=${browserProfilePathForScreen("writer")}`);
@@ -613,11 +622,41 @@ describe("sandbox supervisor input containment", () => {
     expect(primary).not.toMatch(/6080/);
 
     const extra = stopExtraScreenCommand(1, "researcher");
-    expect(extra).toContain("Xvfb :2 -screen");
+    expect(extra).toContain("[X]vfb :2 -screen");
     expect(extra).toContain("[f]luxbox -rc /tmp/fluxbox-home-2/.fluxbox/init");
     expect(extra).toContain("rfbport 5902");
     expect(extra).toContain("websockify.*6082");
     expect(extra).toContain(`--user-data-dir=${browserProfilePathForScreen("researcher")}`);
+  });
+
+  it("on cancel, stops only the matching bot's primary-display Chromium", () => {
+    const stop = stopExtraScreenCommand(0, "writer");
+    expect(stop).toContain(`--user-data-dir=${browserProfilePathForScreen("writer")}`);
+    expect(stop).not.toContain(`--user-data-dir=${browserProfilePathForScreen("researcher")}`);
+    expect(stop).not.toContain("Xvfb");
+    expect(stop).not.toContain("fluxbox");
+  });
+
+  it("does not stop the primary browser when a present registry rejects release", () => {
+    expect(
+      screenReleaseStopCommand(undefined, {
+        hasRegistry: true,
+        cancelRunWork: true,
+        screenId: "writer",
+      }),
+    ).toBe("");
+  });
+
+  it("still stops the matching bot browser on cancel when the screen registry is missing", () => {
+    // After a supervisor restart, in-memory assignments are gone; cancel must still
+    // tear down the bot's orphaned Chromium without falling back on a rejected lease.
+    const orphanCancelStop = screenReleaseStopCommand(undefined, {
+      hasRegistry: false,
+      cancelRunWork: true,
+      screenId: "writer",
+    });
+    expect(orphanCancelStop).toContain(`--user-data-dir=${browserProfilePathForScreen("writer")}`);
+    expect(orphanCancelStop).not.toContain("Xvfb");
   });
 
   it("parses a captured frame without trusting optional desktop metadata", () => {

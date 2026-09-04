@@ -3,15 +3,16 @@
 #   docker compose --env-file .env -f docker-compose.images.yml up -d
 #
 # Tag contract matches docs/self-host.md (edge from main; release tags when published).
-# Default is edge because that tag is published on every main build (linux/amd64 only).
-# Pin a published release tag (vX.Y.Z or latest, when present) for multi-arch and fixed versions.
+# Default is edge because that tag is published on every main build (linux/amd64 + linux/arm64).
+# Pin a published vX.Y.Z tag for a fixed version; `latest` moves to each new stable release.
 # Default SANDBOX_PROVIDER=docker boots a local computer via the in-stack supervisor (no E2B key).
 # Optional: set e2b / daytona / box plus the matching API key for remote computers.
 name: rakazo
 
 services:
   postgres:
-    image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
+    # Optional Hub override; unset keeps the digest-pinned official image.
+    image: ${POSTGRES_IMAGE:-postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5}
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -38,7 +39,8 @@ services:
     restart: "no"
 
   data-init:
-    image: busybox:1
+    # Optional Hub override; unset keeps busybox:1.
+    image: ${BUSYBOX_IMAGE:-busybox:1}
     command: ["chown", "-R", "1000:1000", "/data"]
     restart: "no"
     volumes:
@@ -111,6 +113,13 @@ services:
       SANDBOX_SUPERVISOR_URL: http://supervisor:7091
       WAKEUP_DRIVER: graphile
       AGENT_RUNTIME: pi
+      # Optional egress proxy (Mainland / corporate). Empty = unset; either case works.
+      HTTP_PROXY: ${HTTP_PROXY:-${http_proxy:-}}
+      HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
+      NO_PROXY: ${NO_PROXY:-${no_proxy:-}}
+      http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+      https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+      no_proxy: ${no_proxy:-${NO_PROXY:-}}
     ports:
       - "127.0.0.1:3100:3100"
     volumes:
@@ -158,6 +167,13 @@ services:
       SCREEN_PROXY_SECRET: ""
       WAKEUP_DRIVER: graphile
       AGENT_RUNTIME: pi
+      # Optional egress proxy (Mainland / corporate). Empty = unset; either case works.
+      HTTP_PROXY: ${HTTP_PROXY:-${http_proxy:-}}
+      HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
+      NO_PROXY: ${NO_PROXY:-${no_proxy:-}}
+      http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+      https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+      no_proxy: ${no_proxy:-${NO_PROXY:-}}
     volumes:
       - appdata:/data
     networks:

@@ -6,6 +6,7 @@ import {
   BOT_TITLE_MAX_LENGTH,
   CreateBotInput,
   CreateGroupInput,
+  canReactToThreadMessage,
   McpServerConfigInput,
   MessageBlock,
   ModelOAuthBeginSchema,
@@ -19,6 +20,49 @@ import {
 } from "./index.js";
 
 describe("contracts", () => {
+  it("accepts structured live activity progress", () => {
+    expect(MessageBlock.parse({ kind: "progress", text: "Using browser", activity: true })).toEqual(
+      { kind: "progress", text: "Using browser", activity: true },
+    );
+  });
+
+  it("accepts optional persisted duration only on valid steps blocks", () => {
+    expect(
+      MessageBlock.parse({
+        kind: "steps",
+        steps: [{ label: "Run tests", count: 1 }],
+        durationMs: 103_000,
+      }),
+    ).toMatchObject({ durationMs: 103_000 });
+    expect(MessageBlock.safeParse({ kind: "steps", steps: [], durationMs: -1 }).success).toBe(
+      false,
+    );
+  });
+
+  it("limits reactions to persisted non-channel messages", () => {
+    expect(
+      canReactToThreadMessage({ id: "message-1", blocks: [{ kind: "text", text: "hi" }] }),
+    ).toBe(true);
+    expect(
+      canReactToThreadMessage({ id: "subagent:agent-1", blocks: [{ kind: "text", text: "hi" }] }),
+    ).toBe(false);
+    expect(
+      canReactToThreadMessage({
+        id: "message-2",
+        blocks: [
+          {
+            kind: "channel_message",
+            provider: "sendblue",
+            channelId: "channel-1",
+            fromAddress: "+15555550100",
+            fromLabel: "Pat",
+            text: "hi",
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
   it("parses bot create input", () => {
     const parsed = CreateBotInput.parse({ name: "Chief" });
     expect(parsed.title).toBe("");

@@ -7,9 +7,11 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   activeThreadRuns,
+  applyThreadSendReceipt,
   clearActiveThreadRuns,
   computerPanelAutoBoot,
   computerPanelAutoUsesBoot,
+  computerPanelNeedsMaintenance,
   computerTakeoverBlocked,
   isThreadSnapshotEvent,
   mergeThreadSnapshot,
@@ -22,6 +24,58 @@ import {
 } from "./thread-events.js";
 
 describe("thread event reduction", () => {
+  it("shows a committed direct send as queued before its snapshot refresh returns", () => {
+    const initial = snapshot([message("user-1", [{ kind: "text", text: "Continue" }], 4)]);
+
+    const next = applyThreadSendReceipt(initial, {
+      botId: "bot-1",
+      runId: "run-receipt",
+      taskId: "task-receipt",
+      createdAt: "2026-09-03T21:29:52.000Z",
+    });
+
+    expect(next?.run).toMatchObject({
+      id: "run-receipt",
+      taskId: "task-receipt",
+      status: "queued",
+    });
+    expect(next?.activeRuns).toEqual([next?.run]);
+    expect(next?.messages).toBe(initial.messages);
+  });
+
+  it("does not replace authoritative active or group run state with a send receipt", () => {
+    const active = threadRun("run-active");
+    const direct: ThreadSnapshot = { ...snapshot([]), run: active, activeRuns: [active] };
+    const group: ThreadSnapshot = { ...snapshot([]), groupId: "group-1" };
+    const receipt = { botId: "bot-1", runId: "run-new", taskId: "task-new" };
+    const completed = { ...threadRun(receipt.runId), status: "completed" as const };
+
+    expect(applyThreadSendReceipt(direct, receipt)).toBe(direct);
+    expect(applyThreadSendReceipt(group, receipt)).toBe(group);
+    expect(applyThreadSendReceipt({ ...snapshot([]), run: completed }, receipt)?.run).toBe(
+      completed,
+    );
+    expect(applyThreadSendReceipt(snapshot([]), receipt, new Set([receipt.runId]))).toEqual(
+      snapshot([]),
+    );
+  });
+
+  it("applies a persisted thumbs-up event to its message", () => {
+    const initial = snapshot([message("message-1", [{ kind: "text", text: "Done" }], 1)]);
+
+    const next = reduceThreadSnapshot(
+      initial,
+      event({
+        type: "thread.message.reaction",
+        seq: 4,
+        payload: { messageId: "message-1", thumbsUp: true },
+      }),
+    );
+
+    expect(next?.messages[0]?.thumbsUp).toBe(true);
+    expect(next?.cursor).toBe(4);
+  });
+
   it("prepends older pages in order, removes overlaps, and advances the history cursor", () => {
     const initial = snapshot([message("m-2", [], 2), message("m-3", [], 3)], 2);
 
@@ -1301,6 +1355,24 @@ describe("computer event reduction", () => {
     expect(computerPanelAutoUsesBoot("recover-screen")).toBe(true);
     expect(computerPanelAutoUsesBoot("boot")).toBe(true);
     expect(computerPanelAutoUsesBoot("wait")).toBe(false);
+  });
+
+  it("shows maintenance only after a stopped or errored computer finishes booting", () => {
+    expect(computerPanelNeedsMaintenance("error", false)).toBe(true);
+    expect(computerPanelNeedsMaintenance("stopped", false)).toBe(true);
+    expect(computerPanelNeedsMaintenance("error", true)).toBe(false);
+    expect(computerPanelNeedsMaintenance("running", false)).toBe(false);
+    expect(computerPanelNeedsMaintenance(undefined, false)).toBe(false);
+  });
+
+  it("hides side-panel maintenance while the computer overlay is open", () => {
+    const panel = "computer";
+    const booting = false;
+    const showInSidePanel = (computerOpen: boolean) =>
+      panel === "computer" && !computerOpen && computerPanelNeedsMaintenance("stopped", booting);
+
+    expect(showInSidePanel(false)).toBe(true);
+    expect(showInSidePanel(true)).toBe(false);
   });
 });
 

@@ -22,12 +22,20 @@ import {
   resolveComputerControlEndpoint,
   resolveScreenNetworkMode,
   resolveScreenPublishTarget,
+  resolveTeamScreenLimit,
   screenPorts,
   screenUrlFor,
   xdotoolCommand,
 } from "./computer-spec.js";
 
 describe("graphical computer spec", () => {
+  it("allows operators to lower but not exceed the eight-screen capacity", () => {
+    expect(resolveTeamScreenLimit(undefined)).toBe(8);
+    expect(resolveTeamScreenLimit("4")).toBe(4);
+    expect(() => resolveTeamScreenLimit("0")).toThrow(/integer from 1 to 8/);
+    expect(() => resolveTeamScreenLimit("9")).toThrow(/integer from 1 to 8/);
+  });
+
   it("creates a VNC desktop, not an alpine sleep fallback", () => {
     const options = containerCreateOptions({
       name: "rakazo-bot-abc",

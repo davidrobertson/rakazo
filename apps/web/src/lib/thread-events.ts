@@ -28,7 +28,7 @@ const runTriggers = new Set<Run["trigger"]>([
   "skill",
   "bot_message",
   "webhook",
-  "phone",
+  "messaging",
 ]);
 
 function runFromStartedEvent(event: ProductEvent, previous: Run | undefined): Run {
@@ -84,6 +84,49 @@ export function activeThreadRuns(
   snapshot: ThreadSnapshot | null,
 ): NonNullable<ThreadSnapshot["activeRuns"]> {
   return snapshot?.activeRuns ?? (snapshot?.run ? [snapshot.run] : []);
+}
+
+/**
+ * Reflect a committed direct-message send before its follow-up snapshot arrives.
+ *
+ * threads.send returns only after the message and run are durable. Keeping that
+ * receipt prevents a transient snapshot/SSE interruption from showing a stored
+ * user bubble with no working state. A matching live run always wins, and the
+ * next durable event or refresh still supplies the authoritative status.
+ */
+export function applyThreadSendReceipt(
+  snapshot: ThreadSnapshot | null,
+  receipt: { botId: string; runId: string; taskId: string; createdAt?: string },
+  terminalRunIds: ReadonlySet<string> = new Set(),
+): ThreadSnapshot | null {
+  if (
+    !snapshot ||
+    snapshot.groupId ||
+    snapshot.botId !== receipt.botId ||
+    snapshot.run?.id === receipt.runId ||
+    terminalRunIds.has(receipt.runId)
+  ) {
+    return snapshot;
+  }
+  const currentRuns = activeThreadRuns(snapshot);
+  if (currentRuns.some((run) => isActive(run.status as RunStatus))) return snapshot;
+  const createdAt = receipt.createdAt ?? new Date().toISOString();
+  const run: Run = {
+    id: receipt.runId,
+    botId: receipt.botId,
+    threadId: snapshot.threadId,
+    taskId: receipt.taskId,
+    status: "queued",
+    trigger: "user",
+    routineId: null,
+    modelProvider: null,
+    modelId: null,
+    error: null,
+    startedAt: null,
+    completedAt: null,
+    createdAt,
+  };
+  return { ...snapshot, run, activeRuns: [run] };
 }
 
 /** Reason the newest run stopped, until the reader dismisses that run's failure. */
@@ -218,6 +261,7 @@ export function isThreadSnapshotEvent(event: ProductEvent): boolean {
     event.type === "agent.tool.called" ||
     event.type === "thread.message.created" ||
     event.type === "thread.message.updated" ||
+    event.type === "thread.message.reaction" ||
     event.type === "run.started" ||
     event.type === "run.waiting_input" ||
     event.type === "computer.takeover.requested" ||
@@ -391,6 +435,18 @@ export function reduceThreadSnapshot(
     }
     return { ...prev, cursor: event.seq, messages: [...without, next, ...kept] };
   }
+  if (event.type === "thread.message.reaction") {
+    const messageId = String(event.payload.messageId ?? "");
+    return {
+      ...prev,
+      cursor: event.seq,
+      messages: prev.messages.map((message) =>
+        message.id === messageId
+          ? { ...message, thumbsUp: event.payload.thumbsUp === true }
+          : message,
+      ),
+    };
+  }
   if (event.type === "thread.message.created" || event.type === "thread.message.updated") {
     const role = (event.payload.role as ThreadMessage["role"]) ?? "bot";
     const blocks = (event.payload.blocks as ThreadMessage["blocks"]) ?? [];
@@ -402,6 +458,7 @@ export function reduceThreadSnapshot(
       blocks,
       botId: event.botId,
       runId: event.runId,
+      thumbsUp: event.payload.thumbsUp === true,
       createdAt: event.createdAt,
     };
     const replacedSubagentIds = new Set(
@@ -460,6 +517,13 @@ export function computerPanelAutoUsesBoot(
   action: ReturnType<typeof computerPanelAutoBoot>,
 ): boolean {
   return action === "boot" || action === "recover-screen";
+}
+
+export function computerPanelNeedsMaintenance(
+  state: ComputerStatus["state"] | undefined,
+  booting: boolean,
+): boolean {
+  return !booting && (state === "error" || state === "stopped");
 }
 
 export function reduceComputerStatus(

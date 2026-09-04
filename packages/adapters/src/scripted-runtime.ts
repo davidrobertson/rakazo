@@ -34,11 +34,11 @@ export class ScriptedAgentRuntime implements AgentRuntime {
         throw new Error("Scripted run failure");
       }
       if (shouldHang(request.prompt)) {
-        yield { type: "progress", text: "still working…" };
+        yield { type: "progress", text: "still working…", activity: true };
         while (!controller.signal.aborted && !signal.aborted) {
           await abortableDelay(50, controller.signal);
           if (controller.signal.aborted || signal.aborted) break;
-          yield { type: "progress", text: "still working…" };
+          yield { type: "progress", text: "still working…", activity: true };
         }
         yield { type: "done", text: "stopped" };
         return;
@@ -53,7 +53,7 @@ export class ScriptedAgentRuntime implements AgentRuntime {
           return;
         }
         if (turn.assistant) {
-          yield { type: "progress", text: "working…" };
+          yield { type: "progress", text: "working…", activity: true };
           yield { type: "text", text: turn.assistant };
         }
         for (const call of turn.toolCalls ?? []) {
@@ -94,7 +94,12 @@ export class ScriptedAgentRuntime implements AgentRuntime {
           };
         }
         if (turn.ask) {
-          yield { type: "ask", text: turn.ask.text, detail: turn.ask.detail };
+          yield {
+            type: "ask",
+            text: turn.ask.text,
+            detail: turn.ask.detail,
+            actions: turn.ask.actions,
+          };
           return;
         }
         if (turn.takeover) {
@@ -141,6 +146,51 @@ export function inferScript(
         assistant:
           "signed in. the session stays in this computer — protected input never hit the thread.",
         complete: true,
+      },
+    ];
+  }
+  // Before every content-based intent so payload text cannot steal the branch.
+  if (lower.includes("message the bot named") || lower.includes("message bot named")) {
+    const name = namedBot(prompt) ?? "Peer";
+    const message =
+      /named\s+[A-Za-z0-9][A-Za-z0-9_-]{0,39}\s+(?:saying|with|:)\s*([\s\S]+)$/i
+        .exec(prompt)?.[1]
+        ?.trim() ?? `Please help with: ${prompt}`;
+    return [
+      {
+        assistant: "messaging that bot now.",
+        toolCalls: [
+          {
+            name: "message_bot",
+            args: {
+              confirm_name: name,
+              message,
+              intent: "request",
+            },
+          },
+        ],
+        complete: true,
+      },
+    ];
+  }
+  if (
+    lower.includes("tappable choices") ||
+    lower.includes("choice buttons") ||
+    lower.includes("pick from these cities")
+  ) {
+    return [
+      {
+        assistant: "pick one to continue.",
+        ask: {
+          text: "Which city should I use?",
+          detail: "Tap one option.",
+          actions: [
+            { id: "choice-1", label: "Berlin" },
+            { id: "choice-2", label: "Seoul" },
+            { id: "choice-3", label: "Toronto" },
+            { id: "choice-4", label: "Lisbon" },
+          ],
+        },
       },
     ];
   }

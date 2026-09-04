@@ -4,13 +4,16 @@ import {
   applyMobileThreadEvent,
   authHeaders,
   blockText,
+  changePassword,
   currentApiBase,
   deleteAccount,
   loadApiBase,
   type MobileMessage,
   type MobileSnapshot,
   mergeMobileSnapshot,
+  passwordResetCapabilities,
   prependMobileMessagePage,
+  requestPasswordReset,
   resetApiBase,
   rpc,
   saveApiBase,
@@ -20,6 +23,7 @@ import {
   shouldApplyMobileThreadRefresh,
   signIn,
   signOut,
+  signUp,
   subscribeThread,
 } from "./api.js";
 import { resumeLiveNotifications } from "./live-notifications.js";
@@ -71,6 +75,99 @@ describe("mobile API authentication", () => {
     );
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith("rakazo.session_token", "session-token");
     expect(resumeLiveNotifications).not.toHaveBeenCalled();
+  });
+
+  it("creates an account and persists its session token", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ token: "signup-token" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await signUp("new@example.com", "correct horse", "New User");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3100/api/auth/sign-up/email",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "rakazo://" },
+        body: JSON.stringify({
+          email: "new@example.com",
+          password: "correct horse",
+          name: "New User",
+        }),
+      }),
+    );
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith("rakazo.session_token", "signup-token");
+  });
+
+  it("loads password recovery capability and requests a server-approved redirect", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ passwordReset: true, resetUrl: "https://rakazo.test/reset-password" }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ status: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(passwordResetCapabilities()).resolves.toEqual({
+      passwordReset: true,
+      resetUrl: "https://rakazo.test/reset-password",
+    });
+    await requestPasswordReset("ada@example.test", "https://rakazo.test/reset-password");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:3100/api/auth/request-password-reset",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          email: "ada@example.test",
+          redirectTo: "https://rakazo.test/reset-password",
+        }),
+      }),
+    );
+  });
+
+  it("changes a password with the bearer session and revokes other sessions", async () => {
+    vi.mocked(SecureStore.getItemAsync).mockResolvedValue("session-token");
+    const fetchMock = vi.fn(async () => jsonResponse({ status: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await changePassword("old-password", "new-password");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3100/api/auth/change-password",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer session-token" }),
+        body: JSON.stringify({
+          currentPassword: "old-password",
+          newPassword: "new-password",
+          revokeOtherSessions: true,
+        }),
+      }),
+    );
+  });
+
+  it("does not send a password or bearer token to a persisted public HTTP server", async () => {
+    vi.mocked(SecureStore.getItemAsync).mockImplementation(async (key) => {
+      if (key === "rakazo.api_base") return "http://app.example.test";
+      if (key === "rakazo.session_token") return "session-token";
+      return null;
+    });
+    const fetchMock = vi.fn(async () => jsonResponse({ status: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadApiBase();
+    await changePassword("old-password", "new-password");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:3100/api/auth/change-password",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer session-token" }),
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/^http:\/\/app\.example\.test/),
+      expect.anything(),
+    );
   });
 
   it("starts notifications only after the inbox selects the default space", async () => {
@@ -692,6 +789,19 @@ describe("mobile thread refresh targeting", () => {
 });
 
 describe("mobile thread event reduction", () => {
+  it("applies a persisted thumbs-up event to its message", () => {
+    const initial = snapshot([mobileMessage("message-1", [{ kind: "text", text: "Done" }])]);
+
+    const next = applyMobileThreadEvent(initial, {
+      type: "thread.message.reaction",
+      seq: 4,
+      payload: { messageId: "message-1", thumbsUp: true },
+    });
+
+    expect(next?.messages[0]?.thumbsUp).toBe(true);
+    expect(next?.cursor).toBe(4);
+  });
+
   it("prepends ordered history pages without duplicating the boundary message", () => {
     const initial = snapshot([mobileMessage("m-2", [], 2), mobileMessage("m-3", [], 3)], 2);
 
@@ -831,20 +941,35 @@ describe("mobile thread event reduction", () => {
     );
   });
 
-  it("formats phone channel messages with iMessage attribution", () => {
+  it("formats channel messages with their platform attribution", () => {
     expect(
       blockText(
-        mobileMessage("phone-1", [
+        mobileMessage("channel-1", [
           {
-            kind: "phone_channel_message",
+            kind: "channel_message",
+            provider: "sendblue",
             channelId: "ch-1",
-            fromNumber: "+15551234567",
+            fromAddress: "+15551234567",
             fromLabel: "Alex",
             text: "Hello from the group",
           },
         ]),
       ),
     ).toBe("iMessage · Alex: Hello from the group");
+    expect(
+      blockText(
+        mobileMessage("channel-2", [
+          {
+            kind: "channel_message",
+            provider: "slack",
+            channelId: "ch-2",
+            fromAddress: "U123456",
+            fromLabel: "Alex",
+            text: "Hello from the group",
+          },
+        ]),
+      ),
+    ).toBe("Slack · Alex: Hello from the group");
   });
 
   it("deduplicates durable messages and replaces matching transient subagent state", () => {

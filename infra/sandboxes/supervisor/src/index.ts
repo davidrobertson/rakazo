@@ -24,6 +24,7 @@ import {
   resolveComputerControlEndpoint,
   resolveScreenNetworkMode,
   resolveScreenPublishTarget,
+  resolveTeamScreenLimit,
   SCREEN_HOST,
   screenPorts,
   screenUrlFor,
@@ -54,6 +55,7 @@ import {
   type ScreenAssignment,
   sandboxCommandTimedOut,
   sandboxTimeoutCommand,
+  screenReleaseStopCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
   teardownReleasedScreen,
@@ -75,8 +77,8 @@ let imageReady: Promise<void> | undefined;
 let supervisorInfo: Docker.ContainerInspectInfo | undefined;
 const supervisorToken = resolveSupervisorToken(process.env);
 const screenNetworkMode = resolveScreenNetworkMode(process.env.SANDBOX_SCREEN_NETWORK);
+const teamScreenLimit = resolveTeamScreenLimit();
 const computerScreens = new Map<string, Map<string, ScreenAssignment>>();
-const screenLifecycleLocks = new Map<string, Promise<void>>();
 
 const app = new Hono();
 
@@ -541,18 +543,26 @@ app.delete("/computers/:id/screen", async (c) => {
       c.req.header("x-rakazo-bot-id"),
       c.req.header("x-rakazo-space-id"),
     );
-    const screenId =
-      c.req.header("x-rakazo-screen-id") || c.req.header("x-rakazo-bot-id") || c.req.param("id");
-    await withKeyedLock(screenLifecycleLocks, id, async () => {
+    const screenId = c.req.header("x-rakazo-screen-id") || c.req.header("x-rakazo-bot-id") || id;
+    const cancelRunWork = c.req.header("x-rakazo-cancel-run-work") === "1";
+    const screenLeaseId = c.req.header("x-rakazo-screen-lease-id");
+    await withComputerScreenLock(id, async () => {
       const assigned = computerScreens.get(id);
-      const index = assigned
-        ? releaseAssignedScreen(assigned, screenId, c.req.header("x-rakazo-screen-lease-id"))
-        : undefined;
-      const stop = index !== undefined ? stopExtraScreenCommand(index, screenId) : "";
+      const index = assigned ? releaseAssignedScreen(assigned, screenId, screenLeaseId) : undefined;
+      const stop = screenReleaseStopCommand(index, {
+        hasRegistry: Boolean(assigned),
+        cancelRunWork,
+        screenId,
+      });
       if (assigned && index !== undefined) {
         await teardownReleasedScreen(assigned, screenId, index, () =>
           runContainerCommand(container, ["bash", "-lc", stop]),
         );
+      } else if (stop) {
+        const result = await runContainerCommand(container, ["bash", "-lc", stop]);
+        if (result.code !== 0) {
+          throw new Error(result.stderr || "computer screen failed to stop");
+        }
       }
       if (assigned?.size === 0) computerScreens.delete(id);
     });
@@ -571,7 +581,7 @@ app.post("/computers/:id/stop", async (c) => {
       c.req.header("x-rakazo-bot-id"),
       c.req.header("x-rakazo-space-id"),
     );
-    await withKeyedLock(screenLifecycleLocks, id, async () => {
+    await withComputerScreenLock(id, async () => {
       await container.stop().catch(() => undefined);
       clearComputerScreenRegistry(computerScreens, id);
     });
@@ -588,7 +598,7 @@ app.delete("/computers/:id", async (c) => {
     if (!botId) throw new Error("missing computer identity");
     return await withBotLifecycleLock(botId, async () => {
       const { container } = await managedContainer(id, botId, c.req.header("x-rakazo-space-id"));
-      await withKeyedLock(screenLifecycleLocks, id, async () => {
+      await withComputerScreenLock(id, async () => {
         await container.remove({ force: true }).catch(() => undefined);
         clearComputerScreenRegistry(computerScreens, id);
       });
@@ -690,7 +700,7 @@ async function managedScreen(
   screenLeaseId: string | undefined,
 ) {
   const { container, info } = await managedContainer(id, botId, spaceId);
-  return withKeyedLock(screenLifecycleLocks, id, async () => {
+  return withComputerScreenLock(id, async () => {
     let assigned = computerScreens.get(id);
     if (!assigned) {
       const reset = await runContainerCommand(container, [
@@ -703,7 +713,7 @@ async function managedScreen(
       computerScreens.set(id, assigned);
     }
     const screenKey = screenId || botId || id;
-    const index = nextScreenIndex(assigned, screenKey, screenLeaseId);
+    const index = nextScreenIndex(assigned, screenKey, screenLeaseId, teamScreenLimit);
     const layout = screenPorts(index);
     const ensured = await runContainerCommand(container, [
       "bash",
@@ -970,24 +980,18 @@ async function removeBotNetwork(botId: string) {
 }
 
 const botLifecycleLocks = new Map<string, Promise<unknown>>();
+const computerScreenLocks = new Map<string, Promise<unknown>>();
 
 // Serialize create/delete for one bot so DELETE cannot remove a per-bot network
 // while POST still needs it between ensureBotNetwork and container attach.
 async function withBotLifecycleLock<T>(botId: string, task: () => Promise<T>): Promise<T> {
-  const previous = botLifecycleLocks.get(botId) ?? Promise.resolve();
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const current = previous.catch(() => undefined).then(() => gate);
-  botLifecycleLocks.set(botId, current);
-  await previous.catch(() => undefined);
-  try {
-    return await task();
-  } finally {
-    release();
-    if (botLifecycleLocks.get(botId) === current) botLifecycleLocks.delete(botId);
-  }
+  return withKeyedLock(botLifecycleLocks, botId, task);
+}
+
+// Serialize screen claim/release/cancel for one computer so a restart-orphan
+// cancel cannot race a replacement claim and kill the newer Chromium session.
+async function withComputerScreenLock<T>(computerId: string, task: () => Promise<T>): Promise<T> {
+  return withKeyedLock(computerScreenLocks, computerId, task);
 }
 
 async function inspectSupervisorContainer() {

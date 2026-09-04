@@ -1,4 +1,5 @@
 import { RPCHandler } from "@orpc/server/fetch";
+import { COMPUTER_SCREEN_UNAVAILABLE, ComputerScreenUnavailableError } from "@rakazo/adapters";
 import type { Actor } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
@@ -92,6 +93,122 @@ describe("account preferences", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       json: expect.objectContaining({ avatarStyle: "robot" }),
+    });
+  });
+});
+
+describe("model setup gate", () => {
+  function modelGateDeps(options: {
+    agentRuntime: string;
+    deploymentModelKey?: string;
+    deploymentModelCredentialCipher?: string;
+  }) {
+    const prisma = {
+      user: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({
+          email: "user@rakazo.test",
+          name: "Test User",
+          avatarStyle: "robot",
+        }),
+      },
+      spaceModelPreference: { findFirst: vi.fn().mockResolvedValue(null) },
+      deploymentSettings: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue(
+            options.deploymentModelCredentialCipher
+              ? { deploymentModelCredentialCipher: options.deploymentModelCredentialCipher }
+              : null,
+          ),
+      },
+    } as unknown as PrismaClient;
+    const deps = {
+      prisma,
+      env: {
+        agentRuntime: options.agentRuntime,
+        defaultProvider: "openrouter",
+        defaultModel: "test-model",
+        deploymentModelKey: options.deploymentModelKey,
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/rakazo-router-test",
+    } as unknown as RouterDeps;
+    const actor = {
+      spaceId: "workspace-1",
+      userId: "user-1",
+      email: "user@rakazo.test",
+      isDeploymentOwner: true,
+    } satisfies Actor;
+    return { actor, handler: new RPCHandler(createRouter(deps)) };
+  }
+
+  async function call(handler: RPCHandler<never>, actor: Actor, path: string, body: unknown) {
+    const { response } = await handler.handle(
+      new Request(`http://127.0.0.1/rpc/${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: body }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+    return response;
+  }
+
+  it("refuses to start a run when no model is configured", async () => {
+    const { actor, handler } = modelGateDeps({ agentRuntime: "pi" });
+
+    const response = await call(handler, actor, "threads/send", {
+      botId: "bot-1",
+      text: "hello",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({
+        code: "BAD_REQUEST",
+        message: "Connect a model to start a run.",
+      }),
+    });
+  });
+
+  it("does not require a model credential for the scripted test runtime", async () => {
+    const { actor, handler } = modelGateDeps({ agentRuntime: "scripted" });
+
+    const response = await call(handler, actor, "me", null);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({ needsModel: false }),
+    });
+  });
+
+  it("accepts a deployment model key as model configuration", async () => {
+    const { actor, handler } = modelGateDeps({
+      agentRuntime: "pi",
+      deploymentModelKey: "fake-deployment-key",
+    });
+
+    const response = await call(handler, actor, "me", null);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({ needsModel: false }),
+    });
+  });
+
+  it("does not accept a stored deployment cipher the executor cannot use", async () => {
+    const { actor, handler } = modelGateDeps({
+      agentRuntime: "pi",
+      deploymentModelCredentialCipher: "legacy-ciphertext",
+    });
+
+    const response = await call(handler, actor, "me", null);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({ needsModel: true }),
     });
   });
 });
@@ -475,5 +592,78 @@ describe("computer screen url", () => {
     expect(response.status).toBe(500);
     expect(updateMany).not.toHaveBeenCalled();
     logError.mockRestore();
+  });
+
+  it("returns a recoverable conflict when the screen is temporarily busy", async () => {
+    const { response, updateMany } = await callScreenUrl(() =>
+      Promise.reject(new ComputerScreenUnavailableError()),
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({
+        code: "CONFLICT",
+        message: COMPUTER_SCREEN_UNAVAILABLE,
+      }),
+    });
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it("fences an idle viewer so its later close cannot release a newer run", async () => {
+    const connectScreen = vi.fn().mockResolvedValue({
+      url: "http://screen.test",
+      mimeType: "text/html",
+      close: async () => undefined,
+    });
+    const { response } = await callScreenUrl(connectScreen);
+
+    expect(response.status).toBe(200);
+    expect(connectScreen.mock.calls[0]?.[2]).toMatchObject({
+      botId: "bot-1",
+      screenLeaseId: "screen-view-bot-1:0",
+    });
+  });
+
+  it("releases an idle viewer allocation when the screen closes", async () => {
+    const releaseScreen = vi.fn().mockResolvedValue(undefined);
+    const enqueue = vi.fn().mockResolvedValue(undefined);
+    const prisma = {
+      bot: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "bot-1",
+          thread: { id: "thread-1" },
+          computer: computerRow,
+        }),
+      },
+    } as unknown as PrismaClient;
+    const deps = {
+      prisma,
+      sandbox: { releaseScreen },
+      jobs: { enqueue },
+      env: {
+        defaultProvider: "fake",
+        defaultModel: "fake-model",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "e2b",
+      },
+      dataDir: "/tmp/rakazo-router-test",
+    } as unknown as RouterDeps;
+    const handler = new RPCHandler(createRouter(deps));
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/computer/screenClose", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { botId: "bot-1" } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(releaseScreen.mock.calls[0]?.[1]).toMatchObject({
+      botId: "bot-1",
+      operationId: "screen.close",
+      screenLeaseId: "screen-view-bot-1:0",
+    });
+    expect(enqueue).toHaveBeenCalled();
   });
 });

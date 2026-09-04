@@ -285,27 +285,49 @@ function browserRunningFunction(profile: string, pidFile: string) {
   ];
 }
 
+function stopBrowserCommand(screenId: string) {
+  const profile = browserProfilePathForScreen(screenId);
+  const pidFile = browserPidPathForScreen(screenId);
+  return [
+    ...browserRunningFunction(profile, pidFile),
+    `if browser_running; then kill "$pid" 2>/dev/null || true; for i in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done; kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true; fi`,
+    `if browser_running; then echo 'browser still running' >&2; exit 1; fi`,
+    `rm -f ${pidFile}`,
+    `rm -f ${profile}/SingletonLock ${profile}/SingletonCookie ${profile}/SingletonSocket`,
+  ].join("\n");
+}
+
+/** Choose the stop command for DELETE /screen cancel/release.
+ * Callers must hold the per-computer screen lock across this decision and any stop. */
+export function screenReleaseStopCommand(
+  index: number | undefined,
+  options: { hasRegistry: boolean; cancelRunWork: boolean; screenId: string },
+): string {
+  if (index !== undefined) return stopExtraScreenCommand(index, options.screenId);
+  // Missing registry after a supervisor restart: cancel still tears down the
+  // matching bot's orphaned Chromium process without touching another bot.
+  // Present registry + rejected release: newer fence owns the screen — do not kill.
+  if (!options.hasRegistry && options.cancelRunWork) return stopBrowserCommand(options.screenId);
+  return "";
+}
+
 export function stopExtraScreenCommand(index: number, screenId: string) {
   const layout = screenPorts(index);
   const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
-  const profile = browserProfilePathForScreen(screenId);
-  const pidFile = browserPidPathForScreen(screenId);
   const tokenFile = `/tmp/rakazo/control-token-${layout.displayNumber}`;
-  const stopBrowser = [
-    ...browserRunningFunction(profile, pidFile),
-    `if browser_running; then kill "$pid" 2>/dev/null || true; for i in $(seq 1 40); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done; kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true; fi`,
-    `rm -f ${pidFile}`,
-  ].join("\n");
+  const stopBrowser = stopBrowserCommand(screenId);
   if (index <= 0) return stopBrowser;
   return [
     stopBrowser,
-    `pkill -f 'Xvfb ${layout.display} -screen' || true`,
+    `pkill -f '[X]vfb ${layout.display} -screen' || true`,
     `pkill -f '[f]luxbox -rc ${fluxHome}/.fluxbox/init' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.viewVncPort}' || true`,
     `pkill -f '^x11vnc .* -rfbport ${layout.controlVncPort}' || true`,
     `pkill -f '^/usr/bin/python3 .*websockify.*${layout.viewPort}' || true`,
     `pkill -f '^/usr/bin/python3 .*websockify.*${layout.controlPort}' || true`,
     `rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber} ${tokenFile}`,
+    `for i in $(seq 1 20); do if ! xdpyinfo -display ${layout.display} >/dev/null 2>&1 && ! (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 && ! (echo >/dev/tcp/127.0.0.1/${layout.controlPort}) >/dev/null 2>&1; then break; fi; sleep 0.1; done`,
+    `if xdpyinfo -display ${layout.display} >/dev/null 2>&1 || (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 || (echo >/dev/tcp/127.0.0.1/${layout.controlPort}) >/dev/null 2>&1; then echo 'computer screen failed to stop' >&2; exit 1; fi`,
   ].join("; ");
 }
 
@@ -321,23 +343,23 @@ export function resetManagedScreensCommand() {
 }
 
 export async function withKeyedLock<T>(
-  locks: Map<string, Promise<void>>,
+  locks: Map<string, Promise<unknown>>,
   key: string,
   operation: () => Promise<T>,
 ) {
   const previous = locks.get(key) ?? Promise.resolve();
   let release!: () => void;
-  const current = new Promise<void>((resolve) => {
+  const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const queued = previous.then(() => current);
-  locks.set(key, queued);
-  await previous;
+  const current = previous.catch(() => undefined).then(() => gate);
+  locks.set(key, current);
+  await previous.catch(() => undefined);
   try {
     return await operation();
   } finally {
     release();
-    if (locks.get(key) === queued) locks.delete(key);
+    if (locks.get(key) === current) locks.delete(key);
   }
 }
 
