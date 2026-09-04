@@ -33,6 +33,7 @@ import {
   screenReleaseStopCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
+  syncSharedBrowserProfileCommand,
   teardownReleasedScreen,
   withKeyedLock,
 } from "./supervisor-logic.js";
@@ -442,7 +443,8 @@ describe("sandbox supervisor input containment", () => {
     expect(interactiveScreenCommand(true, "lease-new")).toMatch(/x11vnc -display .* -rfbport 5901/);
     expect(interactiveScreenCommand(true, "lease-new")).toMatch(/6081/);
     expect(interactiveScreenCommand(true, "lease-new")).not.toMatch(/-rfbport 5900/);
-    expect(interactiveScreenCommand(false, "lease-old")).toContain("!= 'lease-old'");
+    expect(interactiveScreenCommand(false, "lease-old")).toContain("= 'lease-old'");
+    expect(interactiveScreenCommand(false, "lease-old")).toContain("RAKAZO_CONTROL_RELEASED");
   });
 
   it("assigns distinct screen indexes per Team bot and starts extra displays", () => {
@@ -466,6 +468,10 @@ describe("sandbox supervisor input containment", () => {
       ensureScreenCommand(1, "researcher"),
       stopExtraScreenCommand(0, "writer"),
       stopExtraScreenCommand(1, "researcher"),
+      syncSharedBrowserProfileCommand("writer"),
+      syncSharedBrowserProfileCommand("writer", true),
+      interactiveScreenCommand(false, "lease-old"),
+      interactiveScreenCommand(true, "lease-new"),
       resetManagedScreensCommand(),
     ]) {
       const result = spawnSync("bash", ["-n"], { input: command });
@@ -506,19 +512,38 @@ describe("sandbox supervisor input containment", () => {
     expect(command).not.toContain("pkill -9 -1");
   });
 
-  it("keeps each bot's Chromium profile stable when its display slot changes", () => {
+  it("isolates live Chromium processes while seeding them from one shared profile", () => {
     const writer = browserProfilePathForScreen("writer");
     const researcher = browserProfilePathForScreen("researcher");
+    const command = ensureScreenCommand(0, "writer");
 
     expect(writer).not.toBe(researcher);
-    expect(ensureScreenCommand(0, "writer")).toContain(`--user-data-dir=${writer}`);
+    expect(command).toContain(`--user-data-dir=${writer}`);
     expect(ensureScreenCommand(3, "writer")).toContain(`--user-data-dir=${writer}`);
     expect(ensureScreenCommand(0, "researcher")).toContain(`--user-data-dir=${researcher}`);
-    expect(ensureScreenCommand(0, "writer")).toContain("browser-pid-");
-    expect(ensureScreenCommand(0, "writer")).not.toContain("pgrep -f");
+    expect(command).toContain("/home/rakazo/.browser-profiles/chromium/.");
+    expect(command).toContain(".rakazo-base-generation");
+    expect(command).toContain("browser-pid-");
+    expect(command).not.toContain("pgrep -f");
     expect(browserProfilePathForScreen("../../writer")).toMatch(
       /^\/home\/rakazo\/\.browser-profiles\/chromium-bot-[0-9a-f]+$/,
     );
+  });
+
+  it("checkpoints quiesced browser state with optimistic generation fencing", () => {
+    const normal = syncSharedBrowserProfileCommand("writer");
+    const authoritative = syncSharedBrowserProfileCommand("writer", true);
+    const profile = browserProfilePathForScreen("writer");
+
+    expect(normal).toContain(`profile='${profile}'`);
+    expect(normal).toContain("baseline_generation");
+    expect(normal).toContain('[ 0 -eq 1 ] || [ "$baseline_generation" -eq "$current_generation" ]');
+    expect(authoritative).toContain(
+      '[ 1 -eq 1 ] || [ "$baseline_generation" -eq "$current_generation" ]',
+    );
+    expect(normal).toContain('printf "%s\\n" "$((current_generation + 1))"');
+    expect(normal).toContain('rm -rf "$profile" "$next" "$previous"');
+    expect(normal).toContain('find "$next" -type d');
   });
 
   it("frees a released screen slot so a ninth Team bot can reuse it", () => {

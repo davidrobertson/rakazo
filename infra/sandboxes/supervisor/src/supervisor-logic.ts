@@ -268,6 +268,8 @@ export function browserProfilePathForScreen(screenId: string) {
   return `/home/rakazo/.browser-profiles/chromium-bot-${browserKeyForScreen(screenId)}`;
 }
 
+const sharedBrowserProfile = "/home/rakazo/.browser-profiles/chromium";
+
 function browserPidPathForScreen(screenId: string) {
   return `/tmp/rakazo/browser-pid-${browserKeyForScreen(screenId)}`;
 }
@@ -297,6 +299,43 @@ function stopBrowserCommand(screenId: string) {
   ].join("\n");
 }
 
+/**
+ * Stop one isolated browser and merge its quiesced profile into the shared
+ * Team Computer profile. Normal run cleanup uses optimistic generation
+ * fencing, so an older concurrent session cannot overwrite newer shared
+ * state. A human-controlled session may force the merge because it is the
+ * authoritative place where sign-ins and other explicit browser changes occur.
+ */
+export function syncSharedBrowserProfileCommand(screenId: string, force = false) {
+  const profile = browserProfilePathForScreen(screenId);
+  const key = browserKeyForScreen(screenId);
+  const next = `${sharedBrowserProfile}.next-${key}`;
+  const previous = `${sharedBrowserProfile}.previous-${key}`;
+  return [
+    "set -eu",
+    stopBrowserCommand(screenId),
+    `profile=${shellQuote(profile)}`,
+    `shared=${shellQuote(sharedBrowserProfile)}`,
+    `next=${shellQuote(next)}`,
+    `previous=${shellQuote(previous)}`,
+    'current_generation=$(sed -n "1p" "$shared/.rakazo-generation" 2>/dev/null || printf 0)',
+    'baseline_generation=$(sed -n "1p" "$profile/.rakazo-base-generation" 2>/dev/null || printf 0)',
+    "case \"$current_generation\" in ''|*[!0-9]*) current_generation=0 ;; esac",
+    "case \"$baseline_generation\" in ''|*[!0-9]*) baseline_generation=0 ;; esac",
+    `if [ -d "$profile" ] && { [ ${force ? "1" : "0"} -eq 1 ] || [ "$baseline_generation" -eq "$current_generation" ]; }; then`,
+    '  rm -rf "$next" "$previous"',
+    '  mkdir -p "$next"',
+    '  cp -a --reflink=auto "$profile"/. "$next"/',
+    '  rm -f "$next/SingletonLock" "$next/SingletonCookie" "$next/SingletonSocket" "$next/.rakazo-base-generation"',
+    '  find "$next" -type d \\( -name Cache -o -name "Code Cache" -o -name GPUCache -o -name DawnCache -o -name GrShaderCache \\) -prune -exec rm -rf {} + 2>/dev/null || true',
+    '  printf "%s\\n" "$((current_generation + 1))" >"$next/.rakazo-generation"',
+    '  if [ -d "$shared" ]; then mv "$shared" "$previous"; fi',
+    '  if mv "$next" "$shared"; then rm -rf "$previous"; else [ ! -d "$previous" ] || mv "$previous" "$shared"; exit 1; fi',
+    "fi",
+    'rm -rf "$profile" "$next" "$previous"',
+  ].join("\n");
+}
+
 /** Choose the stop command for DELETE /screen cancel/release.
  * Callers must hold the per-computer screen lock across this decision and any stop. */
 export function screenReleaseStopCommand(
@@ -307,7 +346,9 @@ export function screenReleaseStopCommand(
   // Missing registry after a supervisor restart: cancel still tears down the
   // matching bot's orphaned Chromium process without touching another bot.
   // Present registry + rejected release: newer fence owns the screen — do not kill.
-  if (!options.hasRegistry && options.cancelRunWork) return stopBrowserCommand(options.screenId);
+  if (!options.hasRegistry && options.cancelRunWork) {
+    return syncSharedBrowserProfileCommand(options.screenId);
+  }
   return "";
 }
 
@@ -315,7 +356,7 @@ export function stopExtraScreenCommand(index: number, screenId: string) {
   const layout = screenPorts(index);
   const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
   const tokenFile = `/tmp/rakazo/control-token-${layout.displayNumber}`;
-  const stopBrowser = stopBrowserCommand(screenId);
+  const stopBrowser = syncSharedBrowserProfileCommand(screenId);
   if (index <= 0) return stopBrowser;
   return [
     stopBrowser,
@@ -369,7 +410,6 @@ export function ensureScreenCommand(index: number, screenId: string) {
   const log = `/tmp/rakazo/screen-${layout.displayNumber}`;
   const profile = browserProfilePathForScreen(screenId);
   const pidFile = browserPidPathForScreen(screenId);
-  const sharedProfile = "/home/rakazo/.browser-profiles/chromium";
   const setupDisplay =
     index === 0
       ? [
@@ -401,11 +441,18 @@ export function ensureScreenCommand(index: number, screenId: string) {
     "set -eu",
     ...setupDisplay,
     `xdpyinfo -display ${layout.display} >/dev/null 2>&1 || exit 1`,
-    `mkdir -p /tmp/rakazo ${profile}`,
-    `if [ ! -e ${shellQuote(`${profile}/Local State`)} ] && [ -d ${sharedProfile} ]; then cp -a ${sharedProfile}/. ${profile}/; fi`,
-    `rm -f ${profile}/SingletonLock ${profile}/SingletonCookie ${profile}/SingletonSocket`,
+    `mkdir -p /tmp/rakazo ${path.posix.dirname(profile)}`,
     ...browserRunningFunction(profile, pidFile),
-    `if ! browser_running; then DISPLAY=${layout.display} HOME=/home/rakazo rakazo-browser --user-data-dir=${profile} >${log}-browser.log 2>&1 & printf %s "$!" >${pidFile}; fi`,
+    "if ! browser_running; then",
+    `  rm -rf ${profile}`,
+    `  mkdir -p ${profile}`,
+    `  if [ -d ${sharedBrowserProfile} ]; then cp -a --reflink=auto ${sharedBrowserProfile}/. ${profile}/; fi`,
+    `  shared_generation=$(sed -n '1p' ${sharedBrowserProfile}/.rakazo-generation 2>/dev/null || printf 0)`,
+    "  case \"$shared_generation\" in ''|*[!0-9]*) shared_generation=0 ;; esac",
+    `  printf '%s\\n' "$shared_generation" >${profile}/.rakazo-base-generation`,
+    `  rm -f ${profile}/SingletonLock ${profile}/SingletonCookie ${profile}/SingletonSocket ${profile}/.rakazo-generation`,
+    `  DISPLAY=${layout.display} HOME=/home/rakazo rakazo-browser --user-data-dir=${profile} >${log}-browser.log 2>&1 & printf %s "$!" >${pidFile}`,
+    "fi",
     `for i in $(seq 1 40); do browser_running && break; sleep 0.25; done`,
     `browser_running || exit 1`,
     ...setupView,
@@ -510,10 +557,15 @@ export function interactiveScreenCommand(
     `pkill -f '^x11vnc .* -rfbport ${layout.controlVncPort}' || true; ` +
     `pkill -f '^/usr/bin/python3 .*websockify.*${layout.controlPort}' || true; ` +
     `rm -f ${tokenFile}`;
-  const stop = controlToken
-    ? `[ -f ${tokenFile} ] && [ "$(cat ${tokenFile})" != ${shellQuote(controlToken)} ] || { ${stopProcesses}; }`
-    : stopProcesses;
-  if (!interactive) return stop;
+  if (!interactive) {
+    if (!controlToken) return stopProcesses;
+    return [
+      `if [ -f ${tokenFile} ] && [ "$(cat ${tokenFile})" = ${shellQuote(controlToken)} ]; then`,
+      `  ${stopProcesses}`,
+      "  printf 'RAKAZO_CONTROL_RELEASED\\n'",
+      "fi",
+    ].join("\n");
+  }
   if (!controlToken) throw new Error("interactive screen requires a control token");
   return [
     `[ -f ${tokenFile} ] && [ "$(cat ${tokenFile})" = ${shellQuote(controlToken)} ] && pgrep -f '^x11vnc .* -rfbport ${layout.controlVncPort}' >/dev/null && pgrep -f '^/usr/bin/python3 .*websockify.*${layout.controlPort}' >/dev/null && exit 0 || true`,

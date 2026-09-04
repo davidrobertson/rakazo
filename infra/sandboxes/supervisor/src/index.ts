@@ -58,6 +58,7 @@ import {
   screenReleaseStopCommand,
   shouldReplayComputerActions,
   stopExtraScreenCommand,
+  syncSharedBrowserProfileCommand,
   teardownReleasedScreen,
   toSandboxInput,
   withKeyedLock,
@@ -472,16 +473,51 @@ app.post("/computers/:id/screen-mode", async (c) => {
     })
     .parse(await c.req.json());
   try {
-    const { container, info, layout } = await managedScreen(
-      c.req.param("id"),
-      c.req.header("x-rakazo-bot-id"),
-      c.req.header("x-rakazo-space-id"),
-      c.req.header("x-rakazo-screen-id"),
-      c.req.header("x-rakazo-screen-lease-id"),
-    );
-    if (body.interactive || body.revokeControl !== false) {
-      await setInteractiveScreen(container, body.interactive, body.controlToken, layout);
-    }
+    const id = c.req.param("id");
+    const botId = c.req.header("x-rakazo-bot-id");
+    const spaceId = c.req.header("x-rakazo-space-id");
+    const screenId = c.req.header("x-rakazo-screen-id");
+    const screenLeaseId = c.req.header("x-rakazo-screen-lease-id");
+    const { container, info } = await managedContainer(id, botId, spaceId);
+    const { layout } = await withComputerScreenLock(id, async () => {
+      const screen = await ensureManagedScreen(id, container, info, botId, screenId, screenLeaseId);
+      const controlChanged =
+        body.interactive || body.revokeControl !== false
+          ? await setInteractiveScreen(
+              container,
+              body.interactive,
+              body.controlToken,
+              screen.layout,
+            )
+          : false;
+      // Releasing an explicit user-control lease is the authoritative profile
+      // checkpoint: persist sign-ins, then restart the isolated browser from
+      // that shared snapshot so a resumed bot keeps the same browser state.
+      if (
+        !body.interactive &&
+        body.controlToken &&
+        body.revokeControl !== false &&
+        controlChanged
+      ) {
+        const synced = await runContainerCommand(container, [
+          "bash",
+          "-lc",
+          syncSharedBrowserProfileCommand(screen.screenKey, true),
+        ]);
+        if (synced.code !== 0) {
+          throw new Error(synced.stderr || "shared browser profile failed to sync");
+        }
+        const restarted = await runContainerCommand(container, [
+          "bash",
+          "-lc",
+          ensureScreenCommand(screen.index, screen.screenKey),
+        ]);
+        if (restarted.code !== 0) {
+          throw new Error(restarted.stderr || "computer browser failed to restart");
+        }
+      }
+      return screen;
+    });
     const screenUrl = await publishedScreenUrl(
       container,
       info,
@@ -700,36 +736,54 @@ async function managedScreen(
   screenLeaseId: string | undefined,
 ) {
   const { container, info } = await managedContainer(id, botId, spaceId);
-  return withComputerScreenLock(id, async () => {
-    let assigned = computerScreens.get(id);
-    if (!assigned) {
-      const reset = await runContainerCommand(container, [
-        "bash",
-        "-lc",
-        resetManagedScreensCommand(),
-      ]);
-      if (reset.code !== 0) throw new Error(reset.stderr || "computer screens failed to reset");
-      assigned = new Map();
-      computerScreens.set(id, assigned);
-    }
-    const screenKey = screenId || botId || id;
-    const index = nextScreenIndex(assigned, screenKey, screenLeaseId, teamScreenLimit);
-    const layout = screenPorts(index);
-    const ensured = await runContainerCommand(container, [
+  return withComputerScreenLock(id, () =>
+    ensureManagedScreen(id, container, info, botId, screenId, screenLeaseId),
+  );
+}
+
+async function ensureManagedScreen(
+  id: string,
+  container: Docker.Container,
+  info: Docker.ContainerInspectInfo,
+  botId: string | undefined,
+  screenId: string | undefined,
+  screenLeaseId: string | undefined,
+) {
+  let assigned = computerScreens.get(id);
+  if (!assigned) {
+    const reset = await runContainerCommand(container, [
       "bash",
       "-lc",
-      ensureScreenCommand(index, screenKey),
+      resetManagedScreensCommand(),
     ]);
-    if (ensured.code !== 0) {
-      releaseAssignedScreen(assigned, screenKey);
-      await teardownReleasedScreen(assigned, screenKey, index, () =>
-        runContainerCommand(container, ["bash", "-lc", stopExtraScreenCommand(index, screenKey)]),
-      );
-      if (assigned.size === 0) computerScreens.delete(id);
-      throw new Error(ensured.stderr || `computer screen ${layout.display} failed to start`);
-    }
-    return { container, info, layout, browserProfile: browserProfilePathForScreen(screenKey) };
-  });
+    if (reset.code !== 0) throw new Error(reset.stderr || "computer screens failed to reset");
+    assigned = new Map();
+    computerScreens.set(id, assigned);
+  }
+  const screenKey = screenId || botId || id;
+  const index = nextScreenIndex(assigned, screenKey, screenLeaseId, teamScreenLimit);
+  const layout = screenPorts(index);
+  const ensured = await runContainerCommand(container, [
+    "bash",
+    "-lc",
+    ensureScreenCommand(index, screenKey),
+  ]);
+  if (ensured.code !== 0) {
+    releaseAssignedScreen(assigned, screenKey);
+    await teardownReleasedScreen(assigned, screenKey, index, () =>
+      runContainerCommand(container, ["bash", "-lc", stopExtraScreenCommand(index, screenKey)]),
+    );
+    if (assigned.size === 0) computerScreens.delete(id);
+    throw new Error(ensured.stderr || `computer screen ${layout.display} failed to start`);
+  }
+  return {
+    container,
+    info,
+    layout,
+    index,
+    screenKey,
+    browserProfile: browserProfilePathForScreen(screenKey),
+  };
 }
 
 function isRakazoContainer(info: Docker.ContainerInspectInfo, botId: string, spaceId: string) {
@@ -890,6 +944,7 @@ async function setInteractiveScreen(
     interactiveScreenCommand(interactive, controlToken, layout),
   ]);
   if (result.code !== 0) throw new Error(result.stderr || "control screen failed to start");
+  return interactive || !controlToken || result.stdout.includes("RAKAZO_CONTROL_RELEASED\n");
 }
 
 // Each bot's computer gets its own Docker network so containers cannot reach

@@ -2318,15 +2318,6 @@ export function ShellPage() {
     setSendError(null);
   }, [active?.id, groupId, inGroup]);
 
-  useEffect(() => {
-    if (!computerOpen) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setComputerOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [computerOpen]);
-
   const computerScreenVisible = panel === "computer" || computerOpen;
   useEffect(() => {
     if (!computerScreenVisible || !active || computer?.state !== "running") return;
@@ -2358,12 +2349,39 @@ export function ShellPage() {
     }
   }
 
-  async function releaseComputer(reason?: ComputerReleaseReason) {
-    if (!active) return;
+  const releaseComputer = useCallback(
+    async (reason?: ComputerReleaseReason) => {
+      const botId = activeBotId.current;
+      if (!botId) return;
+      try {
+        await rpc.computer.release({ botId, reason });
+        setComputerOpen(false);
+        await refreshThreadRef.current(botId);
+      } catch {
+        setComputerError(t`Could not continue`);
+        setComputerErrorFromScreen(false);
+      }
+    },
+    [t],
+  );
+
+  const closeComputer = useCallback(async () => {
+    const botId = activeBotId.current;
+    if (botId && userHoldsComputerControl(computerRef.current, botId)) {
+      await releaseComputer();
+      return;
+    }
     setComputerOpen(false);
-    await rpc.computer.release({ botId: active.id, reason }).catch(() => undefined);
-    await refreshThread(active.id);
-  }
+  }, [releaseComputer]);
+
+  useEffect(() => {
+    if (!computerOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") void closeComputer();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closeComputer, computerOpen]);
 
   function dismissComposerError() {
     // The strip shows one message at a time, so only dismiss the run failure when it is the
@@ -3852,7 +3870,7 @@ export function ShellPage() {
                 size="icon-sm"
                 className="text-muted-foreground"
                 aria-label={t`Close computer`}
-                onClick={() => setComputerOpen(false)}
+                onClick={() => void closeComputer()}
               >
                 <X size={16} strokeWidth={1.8} />
               </Button>
