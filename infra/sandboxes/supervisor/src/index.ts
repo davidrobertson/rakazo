@@ -581,6 +581,7 @@ app.delete("/computers/:id/screen", async (c) => {
     );
     const screenId = c.req.header("x-rakazo-screen-id") || c.req.header("x-rakazo-bot-id") || id;
     const cancelRunWork = c.req.header("x-rakazo-cancel-run-work") === "1";
+    const authoritativeBrowserState = c.req.header("x-rakazo-authoritative-browser-state") === "1";
     const screenLeaseId = c.req.header("x-rakazo-screen-lease-id");
     await withComputerScreenLock(id, async () => {
       const assigned = computerScreens.get(id);
@@ -589,6 +590,7 @@ app.delete("/computers/:id/screen", async (c) => {
         hasRegistry: Boolean(assigned),
         cancelRunWork,
         screenId,
+        authoritativeBrowserState,
       });
       if (assigned && index !== undefined) {
         await teardownReleasedScreen(assigned, screenId, index, () =>

@@ -1763,6 +1763,10 @@ export function createRouter(deps: RouterDeps) {
           // A viewer lease can release an idle viewer allocation, but cannot
           // release a newer fenced run that claimed this bot's screen.
           screenLeaseId: screenViewerLeaseId(bot.id),
+          // Closing a user-controlled view keeps the lease, but its quiesced
+          // browser state is still authoritative for shared sign-ins.
+          authoritativeBrowserState:
+            computer.controlHolder === "user" && computer.controlBotId === bot.id,
         });
         scheduleComputerSleep(deps.jobs, computer.id);
         return { ok: true as const };

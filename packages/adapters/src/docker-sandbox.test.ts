@@ -155,4 +155,20 @@ describe("Docker sandbox", () => {
       }),
     );
   });
+
+  it("marks a user-controlled viewer profile as authoritative on release", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new DockerSandboxProvider("http://supervisor.test", "test-token");
+    await provider.releaseScreen(
+      { id: "computer-1", botId: "bot", kind: "docker", providerRef: "computer-1" },
+      { ...context, authoritativeBrowserState: true },
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://supervisor.test/computers/computer-1/screen",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "x-rakazo-authoritative-browser-state": "1" }),
+      }),
+    );
+  });
 });

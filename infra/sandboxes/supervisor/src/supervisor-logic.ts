@@ -340,23 +340,34 @@ export function syncSharedBrowserProfileCommand(screenId: string, force = false)
  * Callers must hold the per-computer screen lock across this decision and any stop. */
 export function screenReleaseStopCommand(
   index: number | undefined,
-  options: { hasRegistry: boolean; cancelRunWork: boolean; screenId: string },
+  options: {
+    hasRegistry: boolean;
+    cancelRunWork: boolean;
+    screenId: string;
+    authoritativeBrowserState?: boolean;
+  },
 ): string {
-  if (index !== undefined) return stopExtraScreenCommand(index, options.screenId);
+  if (index !== undefined) {
+    return stopExtraScreenCommand(index, options.screenId, options.authoritativeBrowserState);
+  }
   // Missing registry after a supervisor restart: cancel still tears down the
   // matching bot's orphaned Chromium process without touching another bot.
   // Present registry + rejected release: newer fence owns the screen — do not kill.
   if (!options.hasRegistry && options.cancelRunWork) {
-    return syncSharedBrowserProfileCommand(options.screenId);
+    return syncSharedBrowserProfileCommand(options.screenId, options.authoritativeBrowserState);
   }
   return "";
 }
 
-export function stopExtraScreenCommand(index: number, screenId: string) {
+export function stopExtraScreenCommand(
+  index: number,
+  screenId: string,
+  authoritativeBrowserState = false,
+) {
   const layout = screenPorts(index);
   const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
   const tokenFile = `/tmp/rakazo/control-token-${layout.displayNumber}`;
-  const stopBrowser = syncSharedBrowserProfileCommand(screenId);
+  const stopBrowser = syncSharedBrowserProfileCommand(screenId, authoritativeBrowserState);
   if (index <= 0) return stopBrowser;
   return [
     stopBrowser,

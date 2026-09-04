@@ -652,6 +652,9 @@ describe("sandbox supervisor input containment", () => {
     expect(extra).toContain("rfbport 5902");
     expect(extra).toContain("websockify.*6082");
     expect(extra).toContain(`--user-data-dir=${browserProfilePathForScreen("researcher")}`);
+
+    const authoritative = stopExtraScreenCommand(0, "writer", true);
+    expect(authoritative).toContain('[ 1 -eq 1 ] || [ "$baseline_generation"');
   });
 
   it("on cancel, stops only the matching bot's primary-display Chromium", () => {

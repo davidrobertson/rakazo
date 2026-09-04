@@ -2365,23 +2365,14 @@ export function ShellPage() {
     [t],
   );
 
-  const closeComputer = useCallback(async () => {
-    const botId = activeBotId.current;
-    if (botId && userHoldsComputerControl(computerRef.current, botId)) {
-      await releaseComputer();
-      return;
-    }
-    setComputerOpen(false);
-  }, [releaseComputer]);
-
   useEffect(() => {
     if (!computerOpen) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") void closeComputer();
+      if (event.key === "Escape") setComputerOpen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeComputer, computerOpen]);
+  }, [computerOpen]);
 
   function dismissComposerError() {
     // The strip shows one message at a time, so only dismiss the run failure when it is the
@@ -3870,7 +3861,7 @@ export function ShellPage() {
                 size="icon-sm"
                 className="text-muted-foreground"
                 aria-label={t`Close computer`}
-                onClick={() => void closeComputer()}
+                onClick={() => setComputerOpen(false)}
               >
                 <X size={16} strokeWidth={1.8} />
               </Button>

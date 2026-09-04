@@ -154,14 +154,6 @@ export default function Computer() {
     }
   }
 
-  async function closeComputer() {
-    if (hasControl) {
-      await releaseComputer();
-      return;
-    }
-    setComputerOpen(false);
-  }
-
   async function setComputerMode(mode: ComputerMode) {
     if (!botId || mode === computer?.mode) return;
     setSwitching(true);
@@ -293,7 +285,7 @@ export default function Computer() {
         animationType="fade"
         presentationStyle="fullScreen"
         onRequestClose={() => {
-          if (!booting) void closeComputer();
+          if (!booting) setComputerOpen(false);
         }}
       >
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
@@ -402,7 +394,7 @@ export default function Computer() {
                   <Pressable
                     accessibilityLabel={t("Close computer")}
                     hitSlop={8}
-                    onPress={() => void closeComputer()}
+                    onPress={() => setComputerOpen(false)}
                     style={{
                       minWidth: 44,
                       minHeight: 44,
