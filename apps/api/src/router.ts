@@ -1755,7 +1755,10 @@ export function createRouter(deps: RouterDeps) {
       screenClose: authed.computer.screenClose.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId);
         const computer = bot.computer;
-        if (!computer?.providerRef || computer.state !== "running") {
+        if (
+          !computer?.providerRef ||
+          (computer.state !== "running" && computer.state !== "booting")
+        ) {
           return { ok: true as const };
         }
         await deps.sandbox.releaseScreen?.(toComputerRef(computer), {

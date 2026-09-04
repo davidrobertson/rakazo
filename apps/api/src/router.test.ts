@@ -667,7 +667,7 @@ describe("computer screen url", () => {
     expect(enqueue).toHaveBeenCalled();
   });
 
-  it("authoritatively checkpoints a user-controlled browser when its viewer closes", async () => {
+  it("checkpoints a booting user-controlled browser when its viewer closes", async () => {
     const releaseScreen = vi.fn().mockResolvedValue(undefined);
     const prisma = {
       bot: {
@@ -676,6 +676,7 @@ describe("computer screen url", () => {
           thread: { id: "thread-1" },
           computer: {
             ...computerRow,
+            state: "booting",
             controlHolder: "user",
             controlBotId: "bot-1",
             controlLeaseId: "lease-1",
